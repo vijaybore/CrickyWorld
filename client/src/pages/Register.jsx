@@ -1,237 +1,278 @@
-import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
+import { useState } from "react";
 
-function Register() {
-  const navigate = useNavigate()
-  const { register } = useAuth()
+export default function Register() {
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const [form, setForm] = useState({
-    name: '', email: '', password: '', confirm: ''
-  })
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+    name: "",
+    mobile: "",
+    password: "",
+    confirmPassword: "",
+  });
+
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+    setError("");
+  };
 
   const handleSubmit = async () => {
-    if (!form.name || !form.email || !form.password || !form.confirm) {
-      setError('Please fill all fields!')
-      return
-    }
-    if (form.password !== form.confirm) {
-      setError('Passwords do not match!')
-      return
+    if (!form.name || !form.mobile || !form.password || !form.confirmPassword) {
+      setError("Please fill in all fields.");
+      return;
     }
     if (form.password.length < 6) {
-      setError('Password must be at least 6 characters!')
-      return
+      setError("Password must be at least 6 characters.");
+      return;
     }
+    if (form.password !== form.confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
     try {
-      setLoading(true)
-      setError('')
-      await register(form.name, form.email, form.password)
-      navigate('/')
+      const res = await fetch("http://localhost:5000/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name,
+          email: form.mobile,
+          password: form.password,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.message || "Registration failed. Please try again.");
+        return;
+      }
+
+      localStorage.setItem("token", data.token);
+      window.location.href = "/";
     } catch (err) {
-      setError(err.response?.data?.message || 'Registration failed!')
+      setError("Could not connect to server. Please try again.");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
-
-  const inputStyle = {
-    width: '100%',
-    padding: 'clamp(10px, 2.5vw, 14px)',
-    background: '#0f172a',
-    border: '1px solid #334155',
-    borderRadius: '10px',
-    color: '#f1f5f9',
-    fontSize: 'clamp(13px, 2.5vw, 15px)',
-    outline: 'none',
-    margin: 0,
-  }
-
-  const labelStyle = {
-    fontSize: 'clamp(12px, 2.5vw, 14px)',
-    color: '#94a3b8',
-    marginBottom: '6px',
-    display: 'block',
-    fontWeight: '500',
-  }
+  };
 
   return (
-   <div style={{
-  position: 'fixed',
-  top: 0, left: 0, right: 0, bottom: 0,
-  background: 'linear-gradient(135deg, #0f172a 0%, #1a2744 50%, #0f172a 100%)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: '16px',
-  overflow: 'auto',
-}}>
-      <div style={{
-        width: '100%',
-        maxWidth: 'min(440px, 95vw)',
-        background: '#1e293b',
-        borderRadius: 'clamp(12px, 3vw, 20px)',
-        padding: 'clamp(20px, 5vw, 40px)',
-        border: '1px solid #334155',
-        boxShadow: '0 25px 50px rgba(0,0,0,0.5)',
-      }}>
-
-        {/* Logo */}
-        <div style={{textAlign:'center', marginBottom:'clamp(20px, 4vw, 28px)'}}>
-          <div style={{
-            fontSize: 'clamp(40px, 8vw, 64px)',
-            marginBottom: '8px',
-            lineHeight: 1,
-          }}>
-            🏏
+    <div style={styles.page}>
+      <div style={styles.card}>
+        <div style={styles.logoWrap}>
+          <div style={styles.logoCircle}>
+            <span style={{ fontSize: "28px" }}>🏏</span>
           </div>
-          <h1 style={{
-            color: '#16a34a',
-            fontSize: 'clamp(22px, 5vw, 32px)',
-            fontWeight: '800',
-            marginBottom: '6px',
-          }}>
-            CrickyWorld
-          </h1>
-          <p style={{
-            color: '#94a3b8',
-            fontSize: 'clamp(12px, 2.5vw, 15px)',
-          }}>
-            Create your account
-          </p>
         </div>
 
-        {/* Error */}
-        {error && (
-          <div style={{
-            background: '#7f1d1d',
-            color: '#fca5a5',
-            padding: 'clamp(10px, 2vw, 14px)',
-            borderRadius: '8px',
-            marginBottom: '16px',
-            fontSize: 'clamp(12px, 2.5vw, 14px)',
-            textAlign: 'center',
-          }}>
-            ❌ {error}
-          </div>
-        )}
+        <h1 style={styles.title}>CrickyWorld</h1>
+        <p style={styles.tagline}>SCORE · TRACK · WIN</p>
+        <p style={styles.subtitle}>Create your account</p>
 
-        {/* Name */}
-        <div style={{marginBottom:'clamp(10px, 2vw, 14px)'}}>
-          <label style={labelStyle}>👤 Full Name</label>
+        <div style={styles.fieldGroup}>
+          <label style={styles.label}>🧑 FULL NAME</label>
           <input
+            name="name"
             type="text"
             placeholder="Enter your full name"
             value={form.name}
-            onChange={e => setForm({...form, name: e.target.value})}
-            style={inputStyle}
+            onChange={handleChange}
+            style={styles.input}
+            onFocus={(e) => (e.target.style.borderColor = "#e63946")}
+            onBlur={(e) => (e.target.style.borderColor = "#2a2a2a")}
           />
         </div>
 
-       {/* Mobile Number */}
-<div style={{marginBottom:'clamp(10px, 2vw, 14px)'}}>
-  <label style={labelStyle}>📱 Mobile Number</label>
-  <div style={{display:'flex', gap:'8px'}}>
-    <div style={{
-      padding:'12px',
-      background:'#0f172a',
-      border:'1px solid #334155',
-      borderRadius:'10px',
-      color:'#f1f5f9',
-      fontSize:'15px',
-      whiteSpace:'nowrap',
-    }}>
-      🇮🇳 +91
-    </div>
-    <input
-      type="tel"
-      placeholder="Enter mobile number"
-      value={form.email}
-      onChange={e => setForm({...form, email: e.target.value})}
-      maxLength={10}
-      style={{...inputStyle, flex:1, margin:0}}
-    />
-  </div>
-</div>
-
-        {/* Password */}
-        <div style={{marginBottom:'clamp(10px, 2vw, 14px)'}}>
-          <label style={labelStyle}>🔒 Password</label>
-          <input
-            type="password"
-            placeholder="Min 6 characters"
-            value={form.password}
-            onChange={e => setForm({...form, password: e.target.value})}
-            style={inputStyle}
-          />
+        <div style={styles.fieldGroup}>
+          <label style={styles.label}>📱 MOBILE NUMBER</label>
+          <div style={styles.mobileRow}>
+            <div style={styles.dialCode}>IN +91</div>
+            <input
+              name="mobile"
+              type="tel"
+              placeholder="Enter mobile number"
+              value={form.mobile}
+              onChange={handleChange}
+              style={{ ...styles.input, flex: 1 }}
+              onFocus={(e) => (e.target.style.borderColor = "#e63946")}
+              onBlur={(e) => (e.target.style.borderColor = "#2a2a2a")}
+            />
+          </div>
         </div>
 
-        {/* Confirm Password */}
-        <div style={{marginBottom:'clamp(16px, 3vw, 24px)'}}>
-          <label style={labelStyle}>🔒 Confirm Password</label>
-          <input
-            type="password"
-            placeholder="Repeat your password"
-            value={form.confirm}
-            onChange={e => setForm({...form, confirm: e.target.value})}
-            onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-            style={inputStyle}
-          />
+        <div style={styles.fieldGroup}>
+          <label style={styles.label}>🔒 PASSWORD</label>
+          <div style={styles.passwordWrap}>
+            <input
+              name="password"
+              type={showPassword ? "text" : "password"}
+              placeholder="Min 6 characters"
+              value={form.password}
+              onChange={handleChange}
+              style={{ ...styles.input, paddingRight: "44px" }}
+              onFocus={(e) => (e.target.style.borderColor = "#e63946")}
+              onBlur={(e) => (e.target.style.borderColor = "#2a2a2a")}
+            />
+            <button onClick={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
+              {showPassword ? "🙈" : "👁️"}
+            </button>
+          </div>
         </div>
 
-        {/* Submit */}
+        <div style={styles.fieldGroup}>
+          <label style={styles.label}>🔒 CONFIRM PASSWORD</label>
+          <div style={styles.passwordWrap}>
+            <input
+              name="confirmPassword"
+              type={showConfirm ? "text" : "password"}
+              placeholder="Repeat your password"
+              value={form.confirmPassword}
+              onChange={handleChange}
+              style={{ ...styles.input, paddingRight: "44px" }}
+              onFocus={(e) => (e.target.style.borderColor = "#e63946")}
+              onBlur={(e) => (e.target.style.borderColor = "#2a2a2a")}
+            />
+            <button onClick={() => setShowConfirm(!showConfirm)} style={styles.eyeBtn}>
+              {showConfirm ? "🙈" : "👁️"}
+            </button>
+          </div>
+        </div>
+
+        {error && <p style={styles.errorMsg}>⚠️ {error}</p>}
+
         <button
           onClick={handleSubmit}
           disabled={loading}
           style={{
-            width: '100%',
-            padding: 'clamp(12px, 2.5vw, 16px)',
-            background: loading ? '#166534' : '#16a34a',
-            border: 'none',
-            borderRadius: '10px',
-            color: 'white',
-            fontSize: 'clamp(14px, 3vw, 17px)',
-            fontWeight: '700',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            transition: 'all 0.2s',
-            marginBottom: 'clamp(16px, 3vw, 24px)',
+            ...styles.submitBtn,
+            opacity: loading ? 0.7 : 1,
+            cursor: loading ? "not-allowed" : "pointer",
           }}
+          onMouseEnter={(e) => { if (!loading) e.currentTarget.style.background = "#c1121f"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "#e63946"; }}
         >
-          {loading ? '⏳ Creating account...' : '🏏 Create Account'}
+          {loading ? "Creating Account..." : "🏏 CREATE ACCOUNT"}
         </button>
 
-        {/* Divider */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          marginBottom: 'clamp(16px, 3vw, 24px)',
-        }}>
-          <div style={{flex:1, height:'1px', background:'#334155'}}/>
-          <span style={{color:'#475569', fontSize:'13px'}}>or</span>
-          <div style={{flex:1, height:'1px', background:'#334155'}}/>
+        <div style={styles.divider}>
+          <span style={styles.dividerLine} />
+          <span style={styles.dividerText}>OR</span>
+          <span style={styles.dividerLine} />
         </div>
 
-        {/* Login Link */}
-        <div style={{textAlign: 'center'}}>
-          <p style={{
-            color: '#94a3b8',
-            fontSize: 'clamp(12px, 2.5vw, 14px)',
-          }}>
-            Already have an account?{' '}
-            <Link to="/login" style={{
-              color: '#16a34a',
-              fontWeight: '700',
-              textDecoration: 'none',
-            }}>
-              Sign in here →
-            </Link>
-          </p>
-        </div>
+        <p style={styles.footer}>
+          Already have an account?{" "}
+          <a href="/login" style={styles.link}>Sign in here →</a>
+        </p>
       </div>
     </div>
-  )
+  );
 }
 
-export default Register
+const styles = {
+  page: {
+    minHeight: "100vh",
+    background: "#0a0a0a",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontFamily: "'Segoe UI', sans-serif",
+    padding: "24px",
+  },
+  card: {
+    background: "#111111",
+    borderRadius: "20px",
+    padding: "40px 44px",
+    width: "100%",
+    maxWidth: "400px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "16px",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+  },
+  logoWrap: { display: "flex", justifyContent: "center", marginBottom: "4px" },
+  logoCircle: {
+    width: "68px",
+    height: "68px",
+    background: "radial-gradient(circle at 35% 35%, #ff4d4d, #c1121f)",
+    borderRadius: "50%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "0 4px 20px rgba(230,57,70,0.5)",
+  },
+  title: { color: "#ffffff", fontSize: "28px", fontWeight: "700", textAlign: "center", margin: 0, letterSpacing: "0.5px" },
+  tagline: { color: "#e63946", fontSize: "11px", fontWeight: "700", textAlign: "center", letterSpacing: "3px", margin: "0 0 2px" },
+  subtitle: { color: "#aaaaaa", fontSize: "13px", textAlign: "center", margin: "0 0 8px" },
+  fieldGroup: { display: "flex", flexDirection: "column", gap: "6px" },
+  label: { color: "#aaaaaa", fontSize: "11px", fontWeight: "600", letterSpacing: "1.5px" },
+  input: {
+    background: "#1a1a1a",
+    border: "1.5px solid #2a2a2a",
+    borderRadius: "10px",
+    color: "#ffffff",
+    fontSize: "14px",
+    padding: "12px 14px",
+    outline: "none",
+    width: "100%",
+    boxSizing: "border-box",
+    transition: "border-color 0.2s",
+  },
+  mobileRow: { display: "flex", gap: "8px", alignItems: "center" },
+  dialCode: {
+    background: "#1a1a1a",
+    border: "1.5px solid #2a2a2a",
+    borderRadius: "10px",
+    color: "#ffffff",
+    fontSize: "13px",
+    fontWeight: "600",
+    padding: "12px 14px",
+    whiteSpace: "nowrap",
+    flexShrink: 0,
+  },
+  passwordWrap: { position: "relative" },
+  eyeBtn: {
+    position: "absolute",
+    right: "12px",
+    top: "50%",
+    transform: "translateY(-50%)",
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    fontSize: "16px",
+    opacity: 0.6,
+    padding: 0,
+  },
+  errorMsg: {
+    color: "#ff6b6b",
+    fontSize: "13px",
+    background: "rgba(230,57,70,0.1)",
+    border: "1px solid rgba(230,57,70,0.3)",
+    borderRadius: "8px",
+    padding: "10px 14px",
+    margin: 0,
+  },
+  submitBtn: {
+    background: "#e63946",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "10px",
+    padding: "14px",
+    fontSize: "14px",
+    fontWeight: "700",
+    letterSpacing: "1px",
+    transition: "background 0.2s",
+    marginTop: "4px",
+    width: "100%",
+  },
+  divider: { display: "flex", alignItems: "center", gap: "12px" },
+  dividerLine: { flex: 1, height: "1px", background: "#2a2a2a", display: "block" },
+  dividerText: { color: "#555555", fontSize: "12px", fontWeight: "600", letterSpacing: "1px" },
+  footer: { color: "#777777", fontSize: "13px", textAlign: "center", margin: 0 },
+  link: { color: "#e63946", textDecoration: "none", fontWeight: "600" },
+};
