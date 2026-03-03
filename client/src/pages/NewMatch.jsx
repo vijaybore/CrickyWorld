@@ -2,181 +2,344 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 
-function NewMatch() {
+export default function NewMatch() {
   const navigate = useNavigate()
   const [form, setForm] = useState({
     team1: '',
     team2: '',
-    overs: 10,
-    tossWinner: '',
-    battingFirst: '',
-    wideRuns: 1,
+    overs: '',
     noBallRuns: 1,
+    wideRuns: 1,
   })
+  const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value })
-  }
+  const set = (key, val) => setForm(f => ({ ...f, [key]: val }))
 
   const handleSubmit = async () => {
-    if (!form.team1 || !form.team2 || !form.tossWinner || !form.battingFirst) {
-      alert('Please fill all fields!')
-      return
-    }
+    if (!form.team1.trim()) return setError('Please enter Team 1 name')
+    if (!form.team2.trim()) return setError('Please enter Team 2 name')
+    if (form.team1.trim().toLowerCase() === form.team2.trim().toLowerCase())
+      return setError('Team names must be different')
+    if (!form.overs || isNaN(form.overs) || Number(form.overs) < 1)
+      return setError('Please enter valid overs (min 1)')
+
     try {
       setLoading(true)
-      const res = await axios.post('http://localhost:5000/api/matches', form)
-      navigate(`/scoring/${res.data._id}`)
+      setError('')
+      const token = localStorage.getItem('token')
+      const { data } = await axios.post(
+        '/api/matches',
+        {
+          team1: form.team1.trim(),
+          team2: form.team2.trim(),
+          overs: Number(form.overs),
+          tossWinner: form.team1.trim(),
+          battingFirst: form.team1.trim(),
+          noBallRuns: Number(form.noBallRuns),
+          wideRuns: Number(form.wideRuns),
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      navigate(`/scoring/${data._id}`)
     } catch (err) {
-      alert('Error creating match!')
+      setError(err.response?.data?.message || 'Failed to create match')
     } finally {
       setLoading(false)
     }
   }
 
-  const labelStyle = {
-    fontSize: '13px',
-    color: '#94a3b8',
-    display: 'block',
-    marginBottom: '4px',
-    marginTop: '12px',
-    fontWeight: '500',
-  }
-
   return (
-    <div>
-      <h2 style={{marginBottom:'16px'}}>🏏 Create New Match</h2>
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Nunito:wght@400;600;700;800&display=swap');
 
-      {/* Team Details */}
-      <div className="card">
-        <h3 style={{marginBottom:'12px'}}>👕 Team Details</h3>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body, #root { height: 100%; background: #0a0a0a; font-family: 'Nunito', sans-serif; }
 
-        <label style={labelStyle}>Team 1 Name</label>
-        <input name="team1" placeholder="Enter team 1 name"
-          value={form.team1} onChange={handleChange} />
+        .nm-page {
+          min-height: 100vh;
+          width: 100%;
+          background: #0a0a0a;
+          display: flex;
+          justify-content: center;
+        }
 
-        <label style={labelStyle}>Team 2 Name</label>
-        <input name="team2" placeholder="Enter team 2 name"
-          value={form.team2} onChange={handleChange} />
+        .nm-inner {
+          width: 100%;
+          max-width: 500px;
+          min-height: 100vh;
+          background: #111;
+          display: flex;
+          flex-direction: column;
+        }
 
-        <label style={labelStyle}>Number of Overs</label>
-        <input name="overs" type="number" placeholder="Overs"
-          value={form.overs} onChange={handleChange} />
-      </div>
+        /* ── Header ── */
+        .nm-header {
+          padding: 18px 18px 16px;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          background: linear-gradient(180deg, #1a1a1a 0%, transparent 100%);
+          border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .nm-back {
+          width: 36px; height: 36px; border-radius: 10px;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.08);
+          display: flex; align-items: center; justify-content: center;
+          font-size: 18px; cursor: pointer;
+          transition: background 0.15s;
+          flex-shrink: 0;
+        }
+        .nm-back:hover { background: rgba(255,68,68,0.15); }
+        .nm-header-title {
+          font-family: 'Rajdhani', sans-serif;
+          font-size: 22px; font-weight: 700;
+          color: #f0f0f0; letter-spacing: 1px;
+        }
+        .nm-header-sub {
+          font-size: 11px; color: #555; font-weight: 600; margin-top: 1px;
+        }
 
-      {/* Toss Details */}
-      <div className="card">
-        <h3 style={{marginBottom:'12px'}}>🪙 Toss Details</h3>
+        /* ── Body ── */
+        .nm-body {
+          flex: 1;
+          padding: 18px 14px 24px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          overflow-y: auto;
+        }
 
-        <label style={labelStyle}>Toss Winner</label>
-        <select name="tossWinner" value={form.tossWinner} onChange={handleChange}>
-          <option value="">Select Toss Winner</option>
-          <option value={form.team1}>{form.team1 || 'Team 1'}</option>
-          <option value={form.team2}>{form.team2 || 'Team 2'}</option>
-        </select>
+        /* ── Section ── */
+        .nm-section-label {
+          font-size: 11px; font-weight: 800;
+          color: #ff4444; letter-spacing: 2px;
+          text-transform: uppercase;
+          margin-bottom: 2px;
+          padding-left: 2px;
+        }
 
-        <label style={labelStyle}>Batting First</label>
-        <select name="battingFirst" value={form.battingFirst} onChange={handleChange}>
-          <option value="">Select Batting Team</option>
-          <option value={form.team1}>{form.team1 || 'Team 1'}</option>
-          <option value={form.team2}>{form.team2 || 'Team 2'}</option>
-        </select>
-      </div>
+        .nm-card {
+          background: #1c1c1c;
+          border: 1px solid rgba(255,255,255,0.06);
+          border-radius: 14px;
+          overflow: hidden;
+          margin-bottom: 4px;
+        }
 
-      {/* Extra Runs Settings */}
-      <div className="card">
-        <h3 style={{marginBottom:'4px'}}>⚙️ Extra Runs Settings</h3>
-        <p className="text-gray" style={{fontSize:'12px', marginBottom:'16px'}}>
-          Set how many runs are added for Wide and No Ball in this match
-        </p>
+        /* ── Input Row ── */
+        .nm-input-row {
+          display: flex;
+          align-items: center;
+          padding: 0 16px;
+          border-bottom: 1px solid rgba(255,255,255,0.05);
+          min-height: 56px;
+        }
+        .nm-input-row:last-child { border-bottom: none; }
 
-        {/* Wide Runs */}
-        <label style={labelStyle}>Wide Ball Runs</label>
-        <div style={{display:'flex', gap:'8px', flexWrap:'wrap', marginTop:'8px'}}>
-          {[0,1].map(r => (
-            <div
-              key={r}
-              onClick={() => setForm({...form, wideRuns: r})}
-              style={{
-                width: '52px',
-                height: '52px',
-                borderRadius: '10px',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                background: form.wideRuns == r ? '#d97706' : '#0f172a',
-                border: `2px solid ${form.wideRuns == r ? '#d97706' : '#334155'}`,
-                color: form.wideRuns == r ? 'white' : '#94a3b8',
-                fontWeight: '700',
-                fontSize: '18px',
-                transition: 'all 0.2s',
-              }}
-            >
-              {r}
-              <span style={{fontSize:'9px', fontWeight:'400', marginTop:'2px'}}>
-                run{r > 1 ? 's' : ''}
-              </span>
+        .nm-row-label {
+          font-size: 13px; font-weight: 600; color: #777;
+          min-width: 110px; flex-shrink: 0;
+        }
+
+        .nm-input {
+          flex: 1;
+          background: transparent;
+          border: none; outline: none;
+          color: #f0f0f0;
+          font-size: 15px; font-weight: 700;
+          font-family: 'Nunito', sans-serif;
+          padding: 16px 0;
+          text-align: right;
+        }
+        .nm-input::placeholder { color: #333; font-weight: 600; }
+
+        /* full-width input (team names) */
+        .nm-input-full {
+          width: 100%;
+          background: transparent;
+          border: none; outline: none;
+          color: #f0f0f0;
+          font-size: 15px; font-weight: 700;
+          font-family: 'Nunito', sans-serif;
+          padding: 16px 0;
+        }
+        .nm-input-full::placeholder { color: #333; font-weight: 600; }
+
+        /* underline on focus */
+        .nm-input-row:focus-within {
+          background: rgba(255,68,68,0.04);
+        }
+        .nm-input-row:focus-within .nm-row-label { color: #ff5555; }
+
+        /* stepper */
+        .nm-stepper {
+          display: flex; align-items: center; gap: 0;
+        }
+        .nm-step-btn {
+          width: 32px; height: 32px; border-radius: 8px;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.08);
+          color: #ccc; font-size: 18px; cursor: pointer;
+          display: flex; align-items: center; justify-content: center;
+          transition: background 0.15s;
+          flex-shrink: 0;
+        }
+        .nm-step-btn:hover { background: rgba(255,68,68,0.2); color: #ff4444; }
+        .nm-step-val {
+          width: 36px; text-align: center;
+          font-size: 15px; font-weight: 800; color: #f0f0f0;
+        }
+
+        /* ── Error ── */
+        .nm-error {
+          background: rgba(127,29,29,0.35);
+          border: 1px solid rgba(255,68,68,0.28);
+          color: #fca5a5; padding: 11px 14px;
+          border-radius: 11px; font-size: 13px;
+          text-align: center; font-weight: 600;
+        }
+
+        /* ── Note ── */
+        .nm-note {
+          background: rgba(255,68,68,0.07);
+          border: 1px solid rgba(255,68,68,0.18);
+          border-radius: 12px;
+          padding: 13px 16px;
+          display: flex; align-items: flex-start; gap: 10px;
+        }
+        .nm-note-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+        .nm-note-text {
+          font-size: 13px; color: #ff8888; font-weight: 700;
+          font-style: italic; line-height: 1.5;
+        }
+        .nm-note-team {
+          color: #fff; font-style: normal;
+        }
+
+        /* ── Start Button ── */
+        .nm-start {
+          width: 100%; height: 54px; border: none;
+          border-radius: 14px;
+          background: linear-gradient(135deg, #cc0000, #ff4444);
+          color: #fff;
+          font-family: 'Rajdhani', sans-serif;
+          font-size: 18px; font-weight: 700; letter-spacing: 2px;
+          cursor: pointer;
+          box-shadow: 0 4px 18px rgba(204,0,0,0.45);
+          transition: filter 0.15s, transform 0.12s, box-shadow 0.15s;
+          display: flex; align-items: center; justify-content: center; gap: 8px;
+        }
+        .nm-start:hover:not(:disabled) {
+          filter: brightness(1.1); transform: translateY(-1px);
+          box-shadow: 0 7px 24px rgba(204,0,0,0.55);
+        }
+        .nm-start:active:not(:disabled) { transform: scale(0.98); }
+        .nm-start:disabled { opacity: 0.5; cursor: not-allowed; }
+      `}</style>
+
+      <div className="nm-page">
+        <div className="nm-inner">
+
+          {/* Header */}
+          <div className="nm-header">
+            <button className="nm-back" onClick={() => navigate('/')}>←</button>
+            <div>
+              <div className="nm-header-title">🏏 New Match</div>
+              <div className="nm-header-sub">Set up your match details</div>
             </div>
-          ))}
-        </div>
-        <p style={{fontSize:'12px', color:'#d97706', marginTop:'8px'}}>
-          Wide = +{form.wideRuns} run{form.wideRuns > 0 ? 's' : ''} (no ball counted)
-        </p>
+          </div>
 
-        {/* No Ball Runs */}
-        <label style={{...labelStyle, marginTop:'20px'}}>No Ball Runs</label>
-        <div style={{display:'flex', gap:'8px', flexWrap:'wrap', marginTop:'8px'}}>
-          {[0,1].map(r => (
-            <div
-              key={r}
-              onClick={() => setForm({...form, noBallRuns: r})}
-              style={{
-                width: '52px',
-                height: '52px',
-                borderRadius: '10px',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                background: form.noBallRuns == r ? '#ea580c' : '#0f172a',
-                border: `2px solid ${form.noBallRuns == r ? '#ea580c' : '#334155'}`,
-                color: form.noBallRuns == r ? 'white' : '#94a3b8',
-                fontWeight: '700',
-                fontSize: '18px',
-                transition: 'all 0.2s',
-              }}
-            >
-              {r}
-              <span style={{fontSize:'9px', fontWeight:'400', marginTop:'2px'}}>
-                run{r > 1 ? 's' : ''}
-              </span>
+          {/* Body */}
+          <div className="nm-body">
+
+            {/* Error */}
+            {error && <div className="nm-error">❌ {error}</div>}
+
+            {/* Team 1 */}
+            <div className="nm-section-label">Team 1</div>
+            <div className="nm-card">
+              <div className="nm-input-row">
+                <input
+                  className="nm-input-full"
+                  placeholder="Team name"
+                  value={form.team1}
+                  onChange={e => { set('team1', e.target.value); setError('') }}
+                />
+              </div>
             </div>
-          ))}
+
+            {/* Team 2 */}
+            <div className="nm-section-label">Team 2</div>
+            <div className="nm-card">
+              <div className="nm-input-row">
+                <input
+                  className="nm-input-full"
+                  placeholder="Team name"
+                  value={form.team2}
+                  onChange={e => { set('team2', e.target.value); setError('') }}
+                />
+              </div>
+            </div>
+
+            {/* Overs */}
+            <div className="nm-section-label">Overs</div>
+            <div className="nm-card">
+              <div className="nm-input-row">
+                <input
+                  className="nm-input-full"
+                  placeholder="Total overs"
+                  type="number"
+                  min="1"
+                  value={form.overs}
+                  onChange={e => { set('overs', e.target.value); setError('') }}
+                />
+              </div>
+            </div>
+
+            {/* Extras */}
+            <div className="nm-section-label">Extras</div>
+            <div className="nm-card">
+              <div className="nm-input-row">
+                <span className="nm-row-label">Runs on NO ball</span>
+                <div className="nm-stepper">
+                  <button className="nm-step-btn" onClick={() => set('noBallRuns', Math.max(0, form.noBallRuns - 1))}>−</button>
+                  <span className="nm-step-val">{form.noBallRuns}</span>
+                  <button className="nm-step-btn" onClick={() => set('noBallRuns', form.noBallRuns + 1)}>+</button>
+                </div>
+              </div>
+              <div className="nm-input-row">
+                <span className="nm-row-label">Runs on Wide ball</span>
+                <div className="nm-stepper">
+                  <button className="nm-step-btn" onClick={() => set('wideRuns', Math.max(0, form.wideRuns - 1))}>−</button>
+                  <span className="nm-step-val">{form.wideRuns}</span>
+                  <button className="nm-step-btn" onClick={() => set('wideRuns', form.wideRuns + 1)}>+</button>
+                </div>
+              </div>
+            </div>
+
+            {/* Start Button */}
+            <button className="nm-start" onClick={handleSubmit} disabled={loading}>
+              {loading ? '⏳ Creating...' : '▶ START MATCH'}
+            </button>
+
+            {/* Note */}
+            <div className="nm-note">
+              <span className="nm-note-icon">📌</span>
+              <div className="nm-note-text">
+                Note :{' '}
+                <span className="nm-note-team">
+                  {form.team1.trim() || 'Team 1'}
+                </span>{' '}
+                will bat first
+              </div>
+            </div>
+
+          </div>
         </div>
-        <p style={{fontSize:'12px', color:'#ea580c', marginTop:'8px'}}>
-          No Ball = +{form.noBallRuns} run{form.noBallRuns > 0 ? 's' : ''} + batsman runs
-        </p>
       </div>
-
-      {/* Start Match Button */}
-      <button
-        className="btn btn-green"
-        style={{width:'100%', padding:'16px', fontSize:'16px', marginTop:'8px'}}
-        onClick={handleSubmit}
-        disabled={loading}
-      >
-        {loading ? '⏳ Creating...' : '🏏 Start Match!'}
-      </button>
-
-      <p className="text-gray text-center" style={{fontSize:'12px', marginTop:'12px'}}>
-        💡 Players will be added during the match scoring
-      </p>
-    </div>
+    </>
   )
 }
-
-export default NewMatch
