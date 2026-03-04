@@ -17,10 +17,9 @@ app.get("/", (req, res) => {
   res.send("Welcome to CrickyWorld API 🏏");
 });
 
-// FIXED: removed './routes/' prefix
-const playerRoutes = require('./players');
-const matchRoutes = require('./matches');
-const authRoutes = require('./auth');
+const playerRoutes = require('./routes/players');
+const matchRoutes = require('./routes/matches');
+const authRoutes = require('./routes/auth');
 
 app.use('/api/players', playerRoutes);
 app.use('/api/matches', matchRoutes);

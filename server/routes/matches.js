@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const Match = require('./Match');
+const Match = require('../models/Match');
 
 router.get('/', async (req, res) => {
   try {
@@ -11,7 +11,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// FIXED: removed nested duplicate router.post
 router.post('/', async (req, res) => {
   try {
     const { team1, team2, overs, tossWinner, battingFirst, wideRuns, noBallRuns } = req.body;
@@ -124,7 +123,12 @@ router.post('/:id/undo', async (req, res) => {
 
     const batsman = innings.battingStats.find(p => p.name === lastBall.batsmanName);
     if (batsman) {
-      if (!lastBall.isWide) { batsman.runs -= lastBall.runs; batsman.balls -= 1; if (lastBall.runs === 4) batsman.fours -= 1; if (lastBall.runs === 6) batsman.sixes -= 1; }
+      if (!lastBall.isWide) {
+        batsman.runs -= lastBall.runs;
+        batsman.balls -= 1;
+        if (lastBall.runs === 4) batsman.fours -= 1;
+        if (lastBall.runs === 6) batsman.sixes -= 1;
+      }
       if (lastBall.isWicket) batsman.isOut = false;
     }
 
@@ -133,7 +137,10 @@ router.post('/:id/undo', async (req, res) => {
       bowler.runs -= lastBall.runs;
       if (lastBall.isWide) bowler.wides -= 1;
       else if (lastBall.isNoBall) bowler.noBalls -= 1;
-      else { bowler.balls -= 1; bowler.overs = Math.floor(bowler.balls / 6) + (bowler.balls % 6) / 10; }
+      else {
+        bowler.balls -= 1;
+        bowler.overs = Math.floor(bowler.balls / 6) + (bowler.balls % 6) / 10;
+      }
       if (lastBall.isWicket) bowler.wickets -= 1;
     }
 

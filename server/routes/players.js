@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const Player = require('../models/Player');
 
-// Get all players
 router.get('/', async (req, res) => {
   try {
     const players = await Player.find().sort({ totalRuns: -1 });
@@ -12,7 +11,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Add new player
 router.post('/', async (req, res) => {
   try {
     const player = new Player({ name: req.body.name });
@@ -23,7 +21,6 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Delete player
 router.delete('/:id', async (req, res) => {
   try {
     await Player.findByIdAndDelete(req.params.id);

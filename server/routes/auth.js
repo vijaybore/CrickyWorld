@@ -6,25 +6,19 @@ const User = require('../models/User');
 
 const JWT_SECRET = 'crickyworld_secret_key_2024';
 
-// Register
 router.post('/register', async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    // Check if user exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: 'Email already registered!' });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Create user
     const user = new User({ name, email, password: hashedPassword });
     await user.save();
 
-    // Generate token
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
 
     res.status(201).json({
@@ -36,24 +30,20 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// Login
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Find user
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(400).json({ message: 'Email not found!' });
     }
 
-    // Check password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(400).json({ message: 'Wrong password!' });
     }
 
-    // Generate token
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
 
     res.json({
@@ -65,7 +55,6 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Get current user
 router.get('/me', async (req, res) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
