@@ -24,6 +24,7 @@ const authRoutes = require('./routes/auth');
 app.use('/api/players', playerRoutes);
 app.use('/api/matches', matchRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/tournaments', require('./routes/tournaments'))
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => {

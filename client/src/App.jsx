@@ -10,8 +10,9 @@ import MatchReport from './pages/MatchReport'
 import ManagePlayers from './pages/ManagePlayers'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import Tournaments from './pages/Tournaments'
+import PrivateRoute from "./components/PrivateRoute";
 
-// Full-screen pages — no sidebar/navbar
 const NO_NAVBAR_ROUTES = ['/', '/new-match', '/matches', '/login', '/register']
 
 function ProtectedRoute({ children }) {
@@ -37,15 +38,21 @@ function App() {
       {showNavbar && <Navbar />}
       <div className={showNavbar ? 'main-content' : ''}>
         <Routes>
-          <Route path="/login"          element={<Login />} />
-          <Route path="/register"       element={<Register />} />
-          <Route path="/"               element={<ProtectedRoute><Home /></ProtectedRoute>} />
-          <Route path="/new-match"      element={<ProtectedRoute><NewMatch /></ProtectedRoute>} />
-          <Route path="/matches"        element={<ProtectedRoute><OpenMatch /></ProtectedRoute>} />
-          <Route path="/scoring/:id"    element={<ProtectedRoute><Scoring /></ProtectedRoute>} />
-          <Route path="/players"        element={<ProtectedRoute><Players /></ProtectedRoute>} />
-          <Route path="/report/:id"     element={<ProtectedRoute><MatchReport /></ProtectedRoute>} />
+
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+
+          <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+          <Route path="/new-match" element={<ProtectedRoute><NewMatch /></ProtectedRoute>} />
+          <Route path="/matches" element={<ProtectedRoute><OpenMatch /></ProtectedRoute>} />
+          <Route path="/scoring/:id" element={<ProtectedRoute><Scoring /></ProtectedRoute>} />
+          <Route path="/players" element={<ProtectedRoute><Players /></ProtectedRoute>} />
+          <Route path="/report/:id" element={<ProtectedRoute><MatchReport /></ProtectedRoute>} />
           <Route path="/manage-players" element={<ProtectedRoute><ManagePlayers /></ProtectedRoute>} />
+
+          {/* FIXED */}
+          <Route path="/tournaments" element={<PrivateRoute><Tournaments /></PrivateRoute>} />
+
         </Routes>
       </div>
     </div>
