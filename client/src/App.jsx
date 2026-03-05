@@ -1,62 +1,50 @@
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
-import Navbar from './components/Navbar'
-import Home from './pages/Home'
-import NewMatch from './pages/NewMatch'
-import OpenMatch from './pages/OpenMatch'
-import Scoring from './pages/Scoring'
-import Players from './pages/Players'
-import MatchReport from './pages/MatchReport'
+
+import Home          from './pages/Home'
+import Login         from './pages/Login'
+import Register      from './pages/Register'
+import NewMatch      from './pages/NewMatch'
+import OpenMatch     from './pages/OpenMatch'
+import Scoring       from './pages/Scoring'
+import MatchReport   from './pages/MatchReport'
+import Players       from './pages/Players'
 import ManagePlayers from './pages/ManagePlayers'
-import Login from './pages/Login'
-import Register from './pages/Register'
-import Tournaments from './pages/Tournaments'
-import PrivateRoute from "./components/PrivateRoute";
+import Tournaments   from './pages/Tournaments'
 
-const NO_NAVBAR_ROUTES = ['/', '/new-match', '/matches', '/login', '/register']
-
-function ProtectedRoute({ children }) {
+function PrivateRoute({ children }) {
   const { user, loading } = useAuth()
-  if (loading) return <div style={{ color: '#fff', textAlign: 'center', marginTop: '40px' }}>Loading...</div>
-  if (!user) return <Navigate to="/login" />
-  return children
+  if (loading) return null
+  return user ? children : <Navigate to="/login" replace />
 }
 
-function App() {
-  const { user } = useAuth()
-  const location = useLocation()
-
-  const isNoNavbar =
-    NO_NAVBAR_ROUTES.includes(location.pathname) ||
-    location.pathname.startsWith('/scoring/') ||
-    location.pathname.startsWith('/report/')
-
-  const showNavbar = user && !isNoNavbar
-
+export default function App() {
   return (
-    <div className="app-wrapper">
-      {showNavbar && <Navbar />}
-      <div className={showNavbar ? 'main-content' : ''}>
-        <Routes>
+    <Routes>
+      {/* ── Public ── */}
+      <Route path="/login"    element={<Login />} />
+      <Route path="/register" element={<Register />} />
 
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+      {/* ── Home ── */}
+      <Route path="/" element={<PrivateRoute><Home /></PrivateRoute>} />
 
-          <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
-          <Route path="/new-match" element={<ProtectedRoute><NewMatch /></ProtectedRoute>} />
-          <Route path="/matches" element={<ProtectedRoute><OpenMatch /></ProtectedRoute>} />
-          <Route path="/scoring/:id" element={<ProtectedRoute><Scoring /></ProtectedRoute>} />
-          <Route path="/players" element={<ProtectedRoute><Players /></ProtectedRoute>} />
-          <Route path="/report/:id" element={<ProtectedRoute><MatchReport /></ProtectedRoute>} />
-          <Route path="/manage-players" element={<ProtectedRoute><ManagePlayers /></ProtectedRoute>} />
+      {/* ── Matches ── */}
+      <Route path="/new-match"      element={<PrivateRoute><NewMatch /></PrivateRoute>} />
+      <Route path="/matches"        element={<PrivateRoute><OpenMatch /></PrivateRoute>} />
+      <Route path="/scoring/:id"    element={<PrivateRoute><Scoring /></PrivateRoute>} />
+      <Route path="/match/:id"      element={<PrivateRoute><MatchReport /></PrivateRoute>} />
 
-          {/* FIXED */}
-          <Route path="/tournaments" element={<PrivateRoute><Tournaments /></PrivateRoute>} />
+      {/* ── Players ── */}
+      <Route path="/players"        element={<PrivateRoute><Players /></PrivateRoute>} />
+      <Route path="/manage-players" element={<PrivateRoute><ManagePlayers /></PrivateRoute>} />
 
-        </Routes>
-      </div>
-    </div>
+      {/* ── Tournaments ── */}
+      <Route path="/new-tournament"  element={<PrivateRoute><Tournaments mode="new" /></PrivateRoute>} />
+      <Route path="/tournaments"     element={<PrivateRoute><Tournaments /></PrivateRoute>} />
+      <Route path="/tournaments/:id" element={<PrivateRoute><Tournaments /></PrivateRoute>} />
+
+      {/* ── Fallback ── */}
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   )
 }
-
-export default App

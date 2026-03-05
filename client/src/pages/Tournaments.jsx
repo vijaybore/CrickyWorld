@@ -1,3 +1,4 @@
+import { useAuth } from '../context/AuthContext'
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import axios from 'axios'
@@ -47,7 +48,7 @@ function computePoints(teams, fixtures) {
 function computeStats(fixtures, allMatches) {
   const players = {}
   const get = name => {
-    if (!players[name]) players[name] = { name, runs:0, balls:0, fours:0, sixes:0, fifties:0, hundreds:0, highScore:0, timesOut:0, wickets:0, oversBowled:0, runsConceded:0, wides:0, bestWickets:0 }
+    if (!players[name]) players[name] = { name, runs:0, balls:0, fours:0, sixes:0, fifties:0, hundreds:0, highScore:0, timesOut:0, wickets:0, oversBowled:0, runsConceded:0, wides:0, bestWickets:0, bestWicketsRuns:999, dotBalls:0, fiveWickets:0, matchesBowled:0 }
     return players[name]
   }
   allMatches.forEach(m => {
@@ -63,18 +64,34 @@ function computeStats(fixtures, allMatches) {
       })
       ;(inn.bowlingStats||[]).forEach(p => {
         const pl = get(p.name)
-        pl.wickets += p.wickets||0; pl.oversBowled += p.balls||0
-        pl.runsConceded += p.runs||0; pl.wides += p.wides||0
-        if ((p.wickets||0) > pl.bestWickets) pl.bestWickets = p.wickets||0
+        const w = p.wickets||0
+        const r = p.runs||0
+        const b = p.balls||0
+        pl.wickets      += w
+        pl.oversBowled  += b
+        pl.runsConceded += r
+        pl.wides        += p.wides||0
+        pl.dotBalls     += p.dotBalls||0
+        if (b > 0) pl.matchesBowled++
+        // best bowling figures: most wickets, then fewest runs
+        if (w > pl.bestWickets || (w === pl.bestWickets && r < pl.bestWicketsRuns)) {
+          pl.bestWickets = w; pl.bestWicketsRuns = r
+        }
+        if (w >= 5) pl.fiveWickets++
       })
     })
   })
   return Object.values(players).map(p => ({
     ...p,
-    avg: p.timesOut > 0 ? (p.runs/p.timesOut).toFixed(1) : p.runs > 0 ? `${p.runs}*` : '0',
-    sr:  p.balls > 0 ? (p.runs/p.balls*100).toFixed(1) : '0',
-    eco: p.oversBowled > 0 ? (p.runsConceded/(p.oversBowled/6)).toFixed(1) : '0',
-    overs: fmt(p.oversBowled),
+    // batting derived
+    avg:      p.timesOut > 0 ? (p.runs/p.timesOut).toFixed(1) : p.runs > 0 ? `${p.runs}*` : '0',
+    sr:       p.balls > 0 ? (p.runs/p.balls*100).toFixed(1) : '0',
+    // bowling derived
+    eco:      p.oversBowled > 0 ? (p.runsConceded/(p.oversBowled/6)).toFixed(2) : '0',
+    bowlAvg:  p.wickets > 0 ? (p.runsConceded/p.wickets).toFixed(1) : '—',
+    bowlSR:   p.wickets > 0 ? (p.oversBowled/p.wickets).toFixed(1) : '—',   // balls per wicket
+    bestFig:  p.bestWickets > 0 ? `${p.bestWickets}/${p.bestWicketsRuns}` : '0/0',
+    overs:    fmt(p.oversBowled),
   }))
 }
 
@@ -130,23 +147,31 @@ function ImageUpload({ current, onUpload, label, size=56 }) {
 }
 
 // ── TOURNAMENT LIST ───────────────────────────────────────────────────────────
-function TournamentList({ onOpen }) {
+function TournamentList({ onOpen, autoCreate, onAutoCreateDone }) {
   const [tournaments, setTournaments] = useState([])
   const [loading, setLoading]         = useState(true)
   const [creating, setCreating]       = useState(false)
-  const [form, setForm]               = useState({ name:'', overs:'10' })
+  const [form, setForm]               = useState({ name:'' })
 
   useEffect(() => {
     axios.get(API, { headers: headers() }).then(r => setTournaments(r.data)).catch(console.error).finally(() => setLoading(false))
   }, [])
 
+  // Auto-open create form when coming from "New Tournament" button
+  useEffect(() => {
+    if (autoCreate && !loading) {
+      setCreating(true)
+      onAutoCreateDone?.()
+    }
+  }, [autoCreate, loading])
+
   const handleCreate = async () => {
     if (!form.name.trim()) return
     try {
-      const { data } = await axios.post(API, { name:form.name.trim(), overs:parseInt(form.overs)||10 }, { headers: headers() })
+      const { data } = await axios.post(API, { name:form.name.trim() }, { headers: headers() })
       setTournaments(t => [data, ...t])
       setCreating(false)
-      setForm({ name:'', overs:'10' })
+      setForm({ name:'' })
       onOpen(data._id)
     } catch { alert('Failed to create') }
   }
@@ -167,7 +192,6 @@ function TournamentList({ onOpen }) {
         <Card style={{ padding:16, marginBottom:14, border:'1px solid rgba(255,68,68,0.2)' }}>
           <div style={{ fontSize:14, fontWeight:800, color:'#f0f0f0', marginBottom:14 }}>New Tournament</div>
           <Input label="TOURNAMENT NAME" value={form.name} onChange={e => setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. CrickyWorld T10 League" />
-          <Input label="OVERS PER MATCH" value={form.overs} onChange={e => setForm(f=>({...f,overs:e.target.value}))} type="number" placeholder="10" />
           <div style={{ display:'flex', gap:8, marginTop:4 }}>
             <button onClick={() => setCreating(false)} style={{ flex:1, padding:'12px', borderRadius:10, background:'#1e1e1e', border:'1px solid #2a2a2a', color:'#666', fontWeight:800, fontSize:13, cursor:'pointer' }}>Cancel</button>
             <button onClick={handleCreate} disabled={!form.name.trim()} style={{ flex:2, padding:'12px', borderRadius:10, background:'linear-gradient(135deg,#cc0000,#ff4444)', border:'none', color:'#fff', fontWeight:800, fontSize:13, cursor:'pointer' }}>Create Tournament</button>
@@ -192,7 +216,7 @@ function TournamentList({ onOpen }) {
                   <div style={{ fontSize:16, fontWeight:800, color:'#f0f0f0', marginBottom:4 }}>{t.name}</div>
                   <div style={{ display:'flex', gap:8, alignItems:'center' }}>
                     <span style={{ fontSize:10, fontWeight:800, color: statusColor[t.status]||'#aaa', background: statusColor[t.status]+'22'||'#1e1e1e', padding:'2px 8px', borderRadius:10 }}>{t.status.toUpperCase()}</span>
-                    <span style={{ fontSize:12, color:'#555' }}>{t.teams?.length||0} teams • {t.overs} ov</span>
+                    <span style={{ fontSize:12, color:'#555' }}>{t.teams?.length||0} teams</span>
                   </div>
                 </div>
                 <div style={{ display:'flex', gap:6, alignItems:'center' }}>
@@ -300,7 +324,7 @@ function TournamentDetail({ id, onBack }) {
 // ── OVERVIEW TAB ──────────────────────────────────────────────────────────────
 function OverviewTab({ t, setT, refresh }) {
   const [editing, setEditing] = useState(false)
-  const [form, setForm]       = useState({ name: t.name, overs: t.overs })
+  const [form, setForm]       = useState({ name: t.name })
 
   const save = async () => {
     const { data } = await axios.patch(`${API}/${t._id}`, form, { headers:headers() })
@@ -354,14 +378,12 @@ function OverviewTab({ t, setT, refresh }) {
         {editing && (
           <>
             <Input label="TOURNAMENT NAME" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} />
-            <Input label="OVERS" type="number" value={form.overs} onChange={e=>setForm(f=>({...f,overs:e.target.value}))} />
             <button onClick={save} style={{ width:'100%', padding:'12px', borderRadius:10, background:'linear-gradient(135deg,#cc0000,#ff4444)', border:'none', color:'#fff', fontWeight:800, fontSize:14, cursor:'pointer' }}>Save Changes</button>
           </>
         )}
         {!editing && (
           <div style={{ marginTop:10, display:'flex', gap:16 }}>
             <div><div style={{ fontSize:11, color:'#555' }}>Name</div><div style={{ fontSize:14, color:'#ddd', fontWeight:700 }}>{t.name}</div></div>
-            <div><div style={{ fontSize:11, color:'#555' }}>Overs</div><div style={{ fontSize:14, color:'#ddd', fontWeight:700 }}>{t.overs}</div></div>
             <div><div style={{ fontSize:11, color:'#555' }}>Status</div><div style={{ fontSize:14, color:'#ff4444', fontWeight:700, textTransform:'capitalize' }}>{t.status}</div></div>
           </div>
         )}
@@ -752,60 +774,152 @@ function StatsTab({ t, matches }) {
   const [statTab, setStatTab] = useState('batting')
   const stats = computeStats(t.fixtures, matches)
 
-  const batting = [...stats].filter(p=>p.balls>0).sort((a,b)=>b.runs-a.runs)
-  const bowling = [...stats].filter(p=>p.oversBowled>0).sort((a,b)=>b.wickets-a.wickets)
+  const batting = [...stats].filter(p => p.balls > 0)
+  const bowling = [...stats].filter(p => p.oversBowled > 0)
 
-  const StatRow = ({ label, players, valueKey, format, color }) => {
-    const top = [...players].sort((a,b) => parseFloat(b[valueKey])-parseFloat(a[valueKey])).slice(0,5)
-    const maxVal = parseFloat(top[0]?.[valueKey]||1)
+  // Generic bar-chart stat row — supports ascending sort (lower is better)
+  const StatRow = ({ label, players, valueKey, format, color, asc, subtitle }) => {
+    const sorted = [...players]
+      .filter(p => {
+        const v = parseFloat(p[valueKey])
+        return !isNaN(v) && p[valueKey] !== '—'
+      })
+      .sort((a, b) => asc
+        ? parseFloat(a[valueKey]) - parseFloat(b[valueKey])
+        : parseFloat(b[valueKey]) - parseFloat(a[valueKey])
+      )
+      .slice(0, 5)
+
+    const vals   = sorted.map(p => parseFloat(p[valueKey]))
+    const maxVal = asc ? Math.max(...vals) || 1 : (vals[0] || 1)
+
     return (
       <Card style={{ marginBottom:10 }}>
-        <div style={{ padding:'10px 14px 6px', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ padding:'10px 14px 6px', borderBottom:'1px solid rgba(255,255,255,0.06)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <div style={{ fontSize:12, fontWeight:800, color:'#aaa', letterSpacing:0.5 }}>{label}</div>
+          {subtitle && <div style={{ fontSize:10, color:'#444', fontWeight:700 }}>{subtitle}</div>}
         </div>
-        {top.map((p,i) => (
-          <div key={p.name} style={{ padding:'8px 14px', borderBottom:'1px solid rgba(255,255,255,0.03)', display:'flex', alignItems:'center', gap:10 }}>
-            <div style={{ fontSize:13, color:'#555', fontWeight:800, width:16 }}>{i+1}</div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:13, color:'#ddd', fontWeight:700, marginBottom:3 }}>{p.name}</div>
-              <div style={{ height:4, background:'#2a2a2a', borderRadius:2, overflow:'hidden' }}>
-                <div style={{ height:'100%', borderRadius:2, background: color, width:`${Math.min(100,(parseFloat(p[valueKey])/maxVal)*100)}%`, transition:'width 0.4s' }}/>
+        {sorted.map((p, i) => {
+          const raw  = p[valueKey]
+          const val  = parseFloat(raw)
+          const barW = asc
+            ? Math.min(100, (1 - (val - Math.min(...vals)) / (Math.max(...vals) - Math.min(...vals) || 1)) * 100)
+            : Math.min(100, (val / maxVal) * 100)
+          return (
+            <div key={p.name} style={{ padding:'8px 14px', borderBottom:'1px solid rgba(255,255,255,0.03)', display:'flex', alignItems:'center', gap:10 }}>
+              <div style={{ fontSize:13, color: i===0?color:'#555', fontWeight:800, width:18 }}>{i+1}</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:13, color:'#ddd', fontWeight:700, marginBottom:3 }}>{p.name}</div>
+                <div style={{ height:4, background:'#2a2a2a', borderRadius:2, overflow:'hidden' }}>
+                  <div style={{ height:'100%', borderRadius:2, background: color, width:`${barW}%`, transition:'width 0.4s' }}/>
+                </div>
+              </div>
+              <div style={{ fontFamily:'Rajdhani,sans-serif', fontSize:18, fontWeight:700, color: i===0?color:'#888', minWidth:52, textAlign:'right' }}>
+                {format ? format(raw) : raw}
               </div>
             </div>
-            <div style={{ fontFamily:'Rajdhani,sans-serif', fontSize:18, fontWeight:700, color: color, minWidth:44, textAlign:'right' }}>
-              {format ? format(p[valueKey]) : p[valueKey]}
-            </div>
-          </div>
-        ))}
-        {top.length === 0 && <div style={{ padding:'16px 14px', fontSize:12, color:'#555' }}>No data yet</div>}
+          )
+        })}
+        {sorted.length === 0 && <div style={{ padding:'16px 14px', fontSize:12, color:'#444' }}>No data yet</div>}
       </Card>
     )
   }
 
+  // Special row for bowling figures (e.g. "5/23") — sort by wickets desc, then runs asc
+  const BestFigRow = ({ players }) => {
+    const sorted = [...players]
+      .filter(p => p.bestWickets > 0)
+      .sort((a,b) => b.bestWickets - a.bestWickets || a.bestWicketsRuns - b.bestWicketsRuns)
+      .slice(0, 5)
+    return (
+      <Card style={{ marginBottom:10 }}>
+        <div style={{ padding:'10px 14px 6px', borderBottom:'1px solid rgba(255,255,255,0.06)', display:'flex', justifyContent:'space-between' }}>
+          <div style={{ fontSize:12, fontWeight:800, color:'#aaa', letterSpacing:0.5 }}>BEST BOWLING FIGURES</div>
+          <div style={{ fontSize:10, color:'#444', fontWeight:700 }}>in a match</div>
+        </div>
+        {sorted.map((p, i) => (
+          <div key={p.name} style={{ padding:'8px 14px', borderBottom:'1px solid rgba(255,255,255,0.03)', display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ fontSize:13, color: i===0?'#fb923c':'#555', fontWeight:800, width:18 }}>{i+1}</div>
+            <div style={{ flex:1, fontSize:13, color:'#ddd', fontWeight:700 }}>{p.name}</div>
+            <div style={{ fontFamily:'Rajdhani,sans-serif', fontSize:20, fontWeight:700, color: i===0?'#fb923c':'#888' }}>
+              {p.bestWickets}/{p.bestWicketsRuns}
+            </div>
+          </div>
+        ))}
+        {sorted.length === 0 && <div style={{ padding:'16px 14px', fontSize:12, color:'#444' }}>No data yet</div>}
+      </Card>
+    )
+  }
+
+  // Section divider
+  const Divider = ({ label }) => (
+    <div style={{ fontSize:10, color:'#444', fontWeight:800, letterSpacing:1.5, padding:'12px 2px 6px' }}>{label}</div>
+  )
+
   return (
     <div style={{ padding:'12px 12px 0' }}>
+      {/* tab switcher */}
       <div style={{ display:'flex', gap:8, marginBottom:14, overflowX:'auto', paddingBottom:4 }}>
-        <Chip label="Batting" active={statTab==='batting'} onClick={()=>setStatTab('batting')} />
-        <Chip label="Bowling" active={statTab==='bowling'} onClick={()=>setStatTab('bowling')} />
+        <Chip label="🏏 Batting" active={statTab==='batting'} onClick={()=>setStatTab('batting')} />
+        <Chip label="🎳 Bowling" active={statTab==='bowling'} onClick={()=>setStatTab('bowling')} />
       </div>
 
+      {/* ── BATTING ── */}
       {statTab === 'batting' && (
         <>
-          <StatRow label="MOST RUNS"         players={batting} valueKey="runs"     color="#ff4444" />
-          <StatRow label="BEST STRIKE RATE"  players={batting} valueKey="sr"       color="#facc15" />
-          <StatRow label="MOST FOURS"        players={batting} valueKey="fours"    color="#4ade80" />
-          <StatRow label="MOST SIXES"        players={batting} valueKey="sixes"    color="#c084fc" />
-          <StatRow label="MOST 50s"          players={batting} valueKey="fifties"  color="#fb923c" />
-          <StatRow label="MOST 100s"         players={batting} valueKey="hundreds" color="#facc15" />
-          <StatRow label="BEST AVERAGE"      players={batting.filter(p=>p.timesOut>0)} valueKey="avg" color="#60a5fa" />
-          <StatRow label="HIGHEST SCORE"     players={batting} valueKey="highScore" color="#ff4444" />
+          <Divider label="RUNS & SCORING" />
+          <StatRow label="MOST RUNS"        players={batting} valueKey="runs"      color="#ff4444" />
+          <StatRow label="HIGHEST SCORE"    players={batting} valueKey="highScore" color="#ff6666" subtitle="in an innings" />
+          <StatRow label="BEST AVERAGE"     players={batting.filter(p=>p.timesOut>0)} valueKey="avg" color="#60a5fa" subtitle="min 1 dismissal" />
+
+          <Divider label="STRIKE PLAY" />
+          <StatRow label="BEST STRIKE RATE" players={batting.filter(p=>p.balls>=6)} valueKey="sr" color="#facc15" subtitle="min 6 balls" />
+          <StatRow label="MOST FOURS"       players={batting} valueKey="fours"     color="#4ade80" />
+          <StatRow label="MOST SIXES"       players={batting} valueKey="sixes"     color="#c084fc" />
+
+          <Divider label="MILESTONES" />
+          <StatRow label="MOST HALF CENTURIES" players={batting} valueKey="fifties"   color="#fb923c" />
+          <StatRow label="MOST CENTURIES"      players={batting} valueKey="hundreds"  color="#facc15" />
         </>
       )}
+
+      {/* ── BOWLING ── */}
       {statTab === 'bowling' && (
         <>
-          <StatRow label="MOST WICKETS"      players={bowling} valueKey="wickets"     color="#ff4444" />
-          <StatRow label="BEST ECONOMY"      players={bowling.filter(p=>p.oversBowled>=6)} valueKey="eco" format={v=>parseFloat(v).toFixed(1)} color="#4ade80" />
-          <StatRow label="BEST BOWLING AVG"  players={bowling.filter(p=>p.wickets>0)} valueKey="wickets" color="#60a5fa" />
+          <Divider label="WICKETS" />
+          <StatRow label="MOST WICKETS"       players={bowling} valueKey="wickets"     color="#ff4444" />
+          <BestFigRow players={bowling} />
+          <StatRow label="MOST 5-WICKET HAULS" players={bowling} valueKey="fiveWickets" color="#ff4444" subtitle="5W in an innings" />
+
+          <Divider label="ECONOMY & AVERAGES" />
+          <StatRow
+            label="BEST ECONOMY"
+            players={bowling.filter(p=>p.oversBowled>=6)}
+            valueKey="eco"
+            color="#4ade80"
+            asc
+            subtitle="min 1 over · lower is better"
+          />
+          <StatRow
+            label="BEST BOWLING AVERAGE"
+            players={bowling.filter(p=>p.wickets>=3)}
+            valueKey="bowlAvg"
+            color="#60a5fa"
+            asc
+            subtitle="runs per wicket · lower is better"
+          />
+          <StatRow
+            label="BEST BOWLING STRIKE RATE"
+            players={bowling.filter(p=>p.wickets>=3)}
+            valueKey="bowlSR"
+            color="#38bdf8"
+            asc
+            subtitle="balls per wicket · lower is better"
+          />
+
+          <Divider label="CONTROL" />
+          <StatRow label="MOST DOT BALLS"    players={bowling} valueKey="dotBalls"  color="#a3e635" />
+          <StatRow label="MOST OVERS BOWLED" players={bowling} valueKey="oversBowled" format={v=>fmt(parseInt(v))} color="#888" />
         </>
       )}
     </div>
@@ -1274,8 +1388,25 @@ function PlayoffsTab({ t, refresh, navigate }) {
 }
 
 // ── MAIN EXPORT ───────────────────────────────────────────────────────────────
-export default function Tournaments() {
-  const [openId, setOpenId] = useState(null)
+export default function Tournaments({ mode: modeProp }) {
+  const navigate   = useNavigate()
+  const { id }     = useParams()                          // present when /tournaments/:id
+  const [openId, setOpenId] = useState(id || null)
+
+  // Support both prop-based mode (from App.jsx route) and query string mode
+  const qMode = new URLSearchParams(window.location.search).get('mode')
+  const [autoCreate, setAutoCreate] = useState(modeProp === 'new' || qMode === 'new')
+
+  // Keep URL in sync
+  const handleOpen = (tid) => {
+    setOpenId(tid)
+    navigate(`/tournaments/${tid}`, { replace: true })
+  }
+
+  const handleBack = () => {
+    setOpenId(null)
+    navigate('/tournaments', { replace: true })
+  }
 
   return (
     <>
@@ -1291,16 +1422,21 @@ export default function Tournaments() {
       <div style={{ minHeight:'100vh', background:'#0a0a0a', display:'flex', justifyContent:'center' }}>
         <div style={{ width:'100%', maxWidth:500, minHeight:'100vh', background:'#111', display:'flex', flexDirection:'column' }}>
           {openId ? (
-            <TournamentDetail id={openId} onBack={() => setOpenId(null)} />
+            <TournamentDetail id={openId} onBack={handleBack} />
           ) : (
             <>
               {/* header */}
-              <div style={{ padding:'16px 16px 12px', background:'#1a1a1a', borderBottom:'1px solid rgba(255,255,255,0.06)', flexShrink:0 }}>
-                <div style={{ fontFamily:'Rajdhani,sans-serif', fontSize:22, fontWeight:700, color:'#ff4444', letterSpacing:1 }}>🏆 Tournaments</div>
-                <div style={{ fontSize:11, color:'#555', marginTop:2 }}>Manage local cricket tournaments</div>
+              <div style={{ padding:'16px 16px 0', background:'#1a1a1a', borderBottom:'1px solid rgba(255,255,255,0.06)', flexShrink:0 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
+                  <button onClick={() => navigate('/')} style={{ width:34, height:34, borderRadius:9, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.08)', color:'#aaa', fontSize:16, cursor:'pointer', flexShrink:0 }}>←</button>
+                  <div>
+                    <div style={{ fontFamily:'Rajdhani,sans-serif', fontSize:22, fontWeight:700, color:'#ff4444', letterSpacing:1 }}>🏆 Tournaments</div>
+                    <div style={{ fontSize:11, color:'#555', marginTop:1 }}>Create and manage local cricket tournaments</div>
+                  </div>
+                </div>
               </div>
               <div style={{ flex:1, overflowY:'auto' }}>
-                <TournamentList onOpen={setOpenId} />
+                <TournamentList onOpen={handleOpen} autoCreate={autoCreate} onAutoCreateDone={() => setAutoCreate(false)} />
               </div>
             </>
           )}
