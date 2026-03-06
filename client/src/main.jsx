@@ -5,6 +5,8 @@ import { AuthProvider } from './context/AuthContext'
 import './index.css'
 import App from './App.jsx'
 
+// AuthProvider is kept so Settings/Login can access auth state,
+// but it no longer redirects to /login on startup.
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>

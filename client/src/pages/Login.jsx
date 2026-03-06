@@ -1,300 +1,287 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
+import axios from 'axios'
 import { useAuth } from '../context/AuthContext'
 
-function Login() {
-  const navigate = useNavigate()
-  const { login } = useAuth()
-  const [form, setForm] = useState({ email: '', password: '' })
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [showPass, setShowPass] = useState(false)
+export default function Login() {
+  const navigate   = useNavigate()
+  const { loginWithOTP } = useAuth()
 
-  const handleSubmit = async () => {
-    if (!form.email || !form.password) {
-      setError('Please fill all fields!')
-      return
-    }
+  const [mobile,   setMobile]   = useState('')
+  const [otp,      setOtp]      = useState('')
+  const [name,     setName]     = useState('')
+  const [step,     setStep]     = useState('mobile') // 'mobile' | 'otp'
+  const [isNew,    setIsNew]    = useState(false)
+  const [loading,  setLoading]  = useState(false)
+  const [error,    setError]    = useState('')
+  const [resendCD, setResendCD] = useState(0) // countdown seconds
+
+  // ── Start resend countdown ───────────────────────────────────────────────
+  const startCountdown = () => {
+    setResendCD(30)
+    const t = setInterval(() => {
+      setResendCD(prev => {
+        if (prev <= 1) { clearInterval(t); return 0 }
+        return prev - 1
+      })
+    }, 1000)
+  }
+
+  // ── Step 1 — send OTP ────────────────────────────────────────────────────
+  const handleSendOTP = async () => {
+    setError('')
+    if (!/^\d{10}$/.test(mobile)) return setError('Enter a valid 10-digit mobile number')
+    setLoading(true)
     try {
-      setLoading(true)
-      setError('')
-      await login(form.email, form.password)
-      navigate('/')
+      const { data } = await axios.post('/api/auth/send-otp', { mobile })
+      setIsNew(!data.exists)
+      if (data.name) setName(data.name)
+      setStep('otp')
+      startCountdown()
     } catch (err) {
-      setError(err.response?.data?.message || 'Login failed!')
+      setError(err.response?.data?.message || 'Failed to send OTP')
     } finally {
       setLoading(false)
     }
+  }
+
+  // ── Step 2 — verify OTP ──────────────────────────────────────────────────
+  const handleVerifyOTP = async () => {
+    setError('')
+    if (otp.length !== 6) return setError('Enter the 6-digit OTP')
+    if (isNew && !name.trim()) return setError('Please enter your name')
+    setLoading(true)
+    try {
+      await loginWithOTP(mobile, otp, isNew ? name.trim() : undefined)
+      navigate('/settings', { replace: true })
+    } catch (err) {
+      setError(err.response?.data?.message || 'Verification failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ── Resend OTP ───────────────────────────────────────────────────────────
+  const handleResend = async () => {
+    if (resendCD > 0) return
+    setError(''); setOtp('')
+    setLoading(true)
+    try {
+      await axios.post('/api/auth/send-otp', { mobile })
+      startCountdown()
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to resend OTP')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ── Shared styles ────────────────────────────────────────────────────────
+  const inputStyle = {
+    width: '100%', padding: '15px 16px',
+    background: 'var(--inputBg, #0a0a0a)',
+    border: '1.5px solid var(--border, rgba(255,255,255,0.07))',
+    borderRadius: 13, color: 'var(--text, #f0f0f0)',
+    fontSize: 15, outline: 'none', boxSizing: 'border-box',
+    fontFamily: 'Nunito, sans-serif', transition: 'border-color 0.15s',
   }
 
   return (
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Nunito:wght@400;600;700;800&display=swap');
-
-        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-
-        html, body, #root {
-          height: 100%;
-          font-family: 'Nunito', sans-serif;
-          background: #0a0a0a;
-        }
-
-        .lg-page {
-          position: fixed;
-          inset: 0;
-          background: #0a0a0a;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 16px;
-          overflow: auto;
-        }
-
-        /* faint cricket-ball glow top-center */
-        .lg-page::before {
-          content: '';
-          position: fixed;
-          top: -100px; left: 50%;
-          transform: translateX(-50%);
-          width: 500px; height: 500px;
-          border-radius: 50%;
-          background: radial-gradient(circle, rgba(200,20,20,0.10) 0%, transparent 65%);
-          pointer-events: none;
-        }
-
-        .lg-card {
-          position: relative;
-          width: 100%;
-          max-width: 420px;
-          background: #111;
-          border-radius: 22px;
-          padding: clamp(28px, 5vw, 48px);
-          border: 1px solid rgba(255,255,255,0.07);
-          box-shadow: 0 24px 60px rgba(0,0,0,0.7);
-          animation: lgUp 0.35s ease both;
-        }
-
-        @keyframes lgUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-
-        /* ── Brand ── */
-        .lg-brand {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          margin-bottom: 30px;
-        }
-
-        .lg-ball {
-          width: 62px; height: 62px; border-radius: 50%;
-          background: radial-gradient(circle at 35% 35%, #ff4444, #8b0000);
-          box-shadow: 0 4px 24px rgba(255,68,68,0.5);
-          display: flex; align-items: center; justify-content: center;
-          font-size: 28px; margin-bottom: 14px;
-          position: relative;
-        }
-        .lg-ball::after {
-          content: '';
-          position: absolute; inset: 6px;
-          border-radius: 50%;
-          border: 1.5px solid rgba(255,200,200,0.2);
-        }
-
-        .lg-brand-name {
-          font-family: 'Rajdhani', sans-serif;
-          font-size: 30px; font-weight: 700;
-          color: #f5f5f5; letter-spacing: 2px; line-height: 1;
-        }
-        .lg-brand-sub {
-          font-size: 10px; color: #ff4444; font-weight: 700;
-          letter-spacing: 3px; text-transform: uppercase; margin-top: 4px;
-        }
-        .lg-brand-tagline {
-          font-size: 13px; color: #555; margin-top: 10px; font-weight: 600;
-        }
-
-        /* ── Error ── */
-        .lg-error {
-          background: rgba(127,29,29,0.4);
-          border: 1px solid rgba(255,68,68,0.3);
-          color: #fca5a5;
-          padding: 11px 14px; border-radius: 10px;
-          margin-bottom: 18px; font-size: 13px;
-          text-align: center; font-weight: 600;
-        }
-
-        /* ── Field ── */
-        .lg-field { margin-bottom: 16px; }
-        .lg-label {
-          font-size: 12px; color: #666; font-weight: 700;
-          letter-spacing: 1px; text-transform: uppercase;
-          margin-bottom: 7px; display: block;
-        }
-
-        .lg-input-wrap {
-          display: flex; align-items: center;
-          background: #1a1a1a;
-          border: 1px solid rgba(255,255,255,0.08);
-          border-radius: 11px;
-          transition: border-color 0.2s, box-shadow 0.2s;
-          overflow: hidden;
-        }
-        .lg-input-wrap:focus-within {
-          border-color: rgba(255,68,68,0.45);
-          box-shadow: 0 0 0 3px rgba(255,68,68,0.08);
-        }
-
-        .lg-prefix {
-          padding: 0 12px;
-          font-size: 14px; color: #555; font-weight: 700;
-          white-space: nowrap;
-          border-right: 1px solid rgba(255,255,255,0.07);
-          height: 48px; display: flex; align-items: center;
-          background: rgba(255,255,255,0.02);
-          flex-shrink: 0;
-        }
-
-        .lg-input {
-          flex: 1; height: 48px;
-          padding: 0 14px;
-          background: transparent;
-          border: none; outline: none;
-          color: #f0f0f0; font-size: 15px;
-          font-family: 'Nunito', sans-serif;
-          font-weight: 600;
-        }
-        .lg-input::placeholder { color: #383838; }
-
-        .lg-eye {
-          background: none; border: none; cursor: pointer;
-          padding: 0 14px; color: #444; font-size: 16px;
-          height: 48px; display: flex; align-items: center;
-          transition: color 0.2s;
-          flex-shrink: 0;
-        }
-        .lg-eye:hover { color: #ff4444; }
-
-        /* ── Submit ── */
-        .lg-submit {
-          width: 100%; height: 50px; border: none;
-          border-radius: 11px; margin-top: 8px; margin-bottom: 22px;
-          background: linear-gradient(135deg, #cc0000, #ff4444);
-          color: #fff; font-size: 16px; font-weight: 800;
-          font-family: 'Rajdhani', sans-serif;
-          letter-spacing: 1.5px; cursor: pointer;
-          box-shadow: 0 4px 18px rgba(204,0,0,0.4);
-          transition: filter 0.15s, transform 0.12s, box-shadow 0.15s;
-          display: flex; align-items: center; justify-content: center; gap: 8px;
-        }
-        .lg-submit:hover:not(:disabled) {
-          filter: brightness(1.1); transform: translateY(-1px);
-          box-shadow: 0 6px 22px rgba(204,0,0,0.5);
-        }
-        .lg-submit:active:not(:disabled) { transform: scale(0.98); }
-        .lg-submit:disabled { opacity: 0.6; cursor: not-allowed; }
-
-        /* ── Divider ── */
-        .lg-divider {
-          display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
-        }
-        .lg-divider-line { flex: 1; height: 1px; background: rgba(255,255,255,0.07); }
-        .lg-divider-text { font-size: 12px; color: #333; font-weight: 700; }
-
-        /* ── Register link ── */
-        .lg-footer { text-align: center; }
-        .lg-footer p { color: #444; font-size: 14px; font-weight: 600; }
-        .lg-footer a {
-          color: #ff4444; font-weight: 800; text-decoration: none;
-          transition: color 0.15s;
-        }
-        .lg-footer a:hover { color: #ff7070; }
+        *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+        html, body, #root { height:100%; background:var(--bg,#0a0a0a); font-family:'Nunito',sans-serif; }
+        input::placeholder { color: var(--muted, #3a3a3a); }
+        input:focus { border-color: var(--accent, #ff4444) !important; }
+        button { font-family: 'Nunito', sans-serif; }
+        input[type=number]::-webkit-outer-spin-button,
+        input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
       `}</style>
 
-      <div className="lg-page">
-        <div className="lg-card">
+      <div style={{ minHeight: '100vh', background: 'var(--bg, #0a0a0a)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+        <div style={{ width: '100%', maxWidth: 400 }}>
 
-          {/* Brand */}
-          <div className="lg-brand">
-            <div className="lg-ball">🏏</div>
-            <div className="lg-brand-name">CrickyWorld</div>
-            <div className="lg-brand-sub">Score · Track · Win</div>
-            <div className="lg-brand-tagline">Sign in to your account</div>
-          </div>
-
-          {/* Error */}
-          {error && <div className="lg-error">❌ {error}</div>}
-
-          {/* Mobile Number */}
-          <div className="lg-field">
-            <label className="lg-label">📱 Mobile Number</label>
-            <div className="lg-input-wrap">
-              <span className="lg-prefix">🇮🇳 +91</span>
-              <input
-                className="lg-input"
-                type="tel"
-                placeholder="Enter mobile number"
-                value={form.email}
-                maxLength={10}
-                onChange={e => setForm({ ...form, email: e.target.value })}
-                onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-              />
-            </div>
-          </div>
-
-          {/* Password */}
-          <div className="lg-field">
-            <label className="lg-label">🔒 Password</label>
-            <div className="lg-input-wrap">
-              <input
-                className="lg-input"
-                type={showPass ? 'text' : 'password'}
-                placeholder="Enter your password"
-                value={form.password}
-                onChange={e => setForm({ ...form, password: e.target.value })}
-                onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-              />
-              <button
-                className="lg-eye"
-                onClick={() => setShowPass(s => !s)}
-                tabIndex={-1}
-                type="button"
-              >
-                {showPass ? '🙈' : '👁️'}
-              </button>
-            </div>
-          </div>
-
-          {/* Sign In */}
+          {/* ── Back button ── */}
           <button
-            className="lg-submit"
-            onClick={handleSubmit}
-            disabled={loading}
+            onClick={() => step === 'otp' ? setStep('mobile') : navigate('/settings')}
+            style={{
+              marginBottom: 28, display: 'flex', alignItems: 'center', gap: 7,
+              background: 'none', border: 'none', color: 'var(--subtext, #777)',
+              fontSize: 13, fontWeight: 700, cursor: 'pointer', padding: 0,
+            }}
           >
-            {loading ? '⏳ Signing in...' : '🏏 SIGN IN'}
+            ← {step === 'otp' ? 'Change number' : 'Back to Settings'}
           </button>
 
-          {/* Divider */}
-          <div className="lg-divider">
-            <div className="lg-divider-line" />
-            <span className="lg-divider-text">OR</span>
-            <div className="lg-divider-line" />
+          {/* ── Card ── */}
+          <div style={{
+            background: 'var(--card, #1a1a1a)',
+            border: '1px solid var(--border, rgba(255,255,255,0.07))',
+            borderRadius: 22, overflow: 'hidden',
+            boxShadow: '0 8px 40px var(--shadow, rgba(0,0,0,0.5))',
+          }}>
+
+            {/* Header */}
+            <div style={{
+              padding: '28px 24px 22px',
+              background: 'linear-gradient(145deg, var(--card, #1a1a1a), var(--card2, #202020))',
+              borderBottom: '1px solid var(--border, rgba(255,255,255,0.07))',
+              textAlign: 'center',
+            }}>
+              <div style={{ fontSize: 46, marginBottom: 12 }}>🏏</div>
+              <div style={{ fontFamily: 'Rajdhani, sans-serif', fontSize: 24, fontWeight: 700, color: 'var(--text, #f0f0f0)', marginBottom: 6 }}>
+                {step === 'mobile' ? 'Sign In' : 'Enter OTP'}
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--subtext, #777)', lineHeight: 1.5 }}>
+                {step === 'mobile'
+                  ? 'Enter your mobile number to continue'
+                  : `OTP sent to +91 ${mobile}`}
+              </div>
+            </div>
+
+            {/* Form */}
+            <div style={{ padding: '24px 24px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+              {/* ── STEP: MOBILE ── */}
+              {step === 'mobile' && (
+                <>
+                  <div>
+                    <div style={{ fontSize: 10, color: 'var(--subtext, #777)', fontWeight: 800, letterSpacing: 1.5, marginBottom: 8 }}>
+                      MOBILE NUMBER
+                    </div>
+                    <div style={{ display: 'flex', gap: 0, borderRadius: 13, overflow: 'hidden', border: '1.5px solid var(--border, rgba(255,255,255,0.07))' }}>
+                      <div style={{
+                        padding: '15px 14px', background: 'var(--card2, #202020)',
+                        color: 'var(--subtext, #777)', fontSize: 14, fontWeight: 700,
+                        borderRight: '1px solid var(--border, rgba(255,255,255,0.07))',
+                        flexShrink: 0, display: 'flex', alignItems: 'center',
+                      }}>
+                        🇮🇳 +91
+                      </div>
+                      <input
+                        style={{ ...inputStyle, border: 'none', borderRadius: 0, flex: 1 }}
+                        type="number"
+                        inputMode="numeric"
+                        placeholder="10-digit number"
+                        maxLength={10}
+                        value={mobile}
+                        onChange={e => setMobile(e.target.value.slice(0, 10))}
+                        onKeyDown={e => e.key === 'Enter' && handleSendOTP()}
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+
+                  {error && <ErrorBox msg={error} />}
+
+                  <button onClick={handleSendOTP} disabled={loading} style={primaryBtn(loading)}>
+                    {loading ? 'Sending…' : 'Send OTP →'}
+                  </button>
+                </>
+              )}
+
+              {/* ── STEP: OTP ── */}
+              {step === 'otp' && (
+                <>
+                  {/* Name field — only for new users */}
+                  {isNew && (
+                    <div>
+                      <div style={{ fontSize: 10, color: 'var(--subtext, #777)', fontWeight: 800, letterSpacing: 1.5, marginBottom: 8 }}>
+                        YOUR NAME
+                      </div>
+                      <input
+                        style={inputStyle}
+                        placeholder="What should we call you?"
+                        value={name}
+                        onChange={e => setName(e.target.value)}
+                        autoFocus
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <div style={{ fontSize: 10, color: 'var(--subtext, #777)', fontWeight: 800, letterSpacing: 1.5, marginBottom: 8 }}>
+                      6-DIGIT OTP
+                    </div>
+                    <input
+                      style={{ ...inputStyle, fontSize: 22, letterSpacing: 8, textAlign: 'center', fontFamily: 'Rajdhani, sans-serif', fontWeight: 700 }}
+                      type="number"
+                      inputMode="numeric"
+                      placeholder="——————"
+                      maxLength={6}
+                      value={otp}
+                      onChange={e => setOtp(e.target.value.slice(0, 6))}
+                      onKeyDown={e => e.key === 'Enter' && handleVerifyOTP()}
+                      autoFocus={!isNew}
+                    />
+                  </div>
+
+                  {/* OTP hint */}
+                  <div style={{
+                    padding: '10px 14px', borderRadius: 10,
+                    background: 'rgba(96,165,250,0.08)',
+                    border: '1px solid rgba(96,165,250,0.18)',
+                    fontSize: 11, color: '#60a5fa', fontWeight: 600, lineHeight: 1.5,
+                  }}>
+                    💡 Check the server console for your OTP (in dev mode)
+                  </div>
+
+                  {error && <ErrorBox msg={error} />}
+
+                  <button onClick={handleVerifyOTP} disabled={loading} style={primaryBtn(loading)}>
+                    {loading ? 'Verifying…' : 'Verify & Sign In ✓'}
+                  </button>
+
+                  {/* Resend */}
+                  <div style={{ textAlign: 'center' }}>
+                    <button
+                      onClick={handleResend}
+                      disabled={resendCD > 0 || loading}
+                      style={{
+                        background: 'none', border: 'none', cursor: resendCD > 0 ? 'default' : 'pointer',
+                        fontSize: 12, fontWeight: 700,
+                        color: resendCD > 0 ? 'var(--muted, #3a3a3a)' : 'var(--accent, #ff4444)',
+                      }}
+                    >
+                      {resendCD > 0 ? `Resend OTP in ${resendCD}s` : 'Resend OTP'}
+                    </button>
+                  </div>
+                </>
+              )}
+
+            </div>
           </div>
 
-          {/* Register */}
-          <div className="lg-footer">
-            <p>
-              Don't have an account?{' '}
-              <Link to="/register">Register here →</Link>
-            </p>
+          {/* Footer */}
+          <div style={{ marginTop: 20, textAlign: 'center', fontSize: 11, color: 'var(--muted, #3a3a3a)', lineHeight: 1.6 }}>
+            By signing in you agree to use this app responsibly 🏏
           </div>
-
         </div>
       </div>
     </>
   )
 }
 
-export default Login
+// ── Helpers ──────────────────────────────────────────────────────────────────
+const primaryBtn = (loading) => ({
+  width: '100%', padding: '15px', borderRadius: 13, border: 'none',
+  background: loading
+    ? 'rgba(204,0,0,0.4)'
+    : 'linear-gradient(135deg, var(--accent2, #cc0000), var(--accent, #ff4444))',
+  color: '#fff', fontWeight: 800, fontSize: 14, letterSpacing: 0.3,
+  cursor: loading ? 'default' : 'pointer',
+  boxShadow: loading ? 'none' : '0 4px 20px rgba(204,0,0,0.3)',
+  transition: 'opacity 0.15s',
+})
+
+function ErrorBox({ msg }) {
+  return (
+    <div style={{
+      padding: '11px 14px', borderRadius: 10,
+      background: 'rgba(248,113,113,0.1)',
+      border: '1px solid rgba(248,113,113,0.25)',
+      fontSize: 12, color: '#f87171', fontWeight: 700, textAlign: 'center',
+    }}>{msg}</div>
+  )
+}

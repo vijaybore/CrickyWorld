@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth }    from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
+// No PrivateRoute — app is fully accessible without login.
+// Login is optional and only available from Settings.
 
 import Home          from './pages/Home'
 import Login         from './pages/Login'
@@ -15,43 +16,37 @@ import Tournaments   from './pages/Tournaments'
 import Records       from './pages/Records'
 import Settings      from './pages/Settings'
 
-function PrivateRoute({ children }) {
-  const { user, loading } = useAuth()
-  if (loading) return null
-  return user ? children : <Navigate to="/login" replace />
-}
-
 export default function App() {
   return (
     <ThemeProvider>
       <Routes>
-        {/* ── Public ── */}
-        <Route path="/login"    element={<Login />} />
-        <Route path="/register" element={<Register />} />
-
         {/* ── Home ── */}
-        <Route path="/" element={<PrivateRoute><Home /></PrivateRoute>} />
+        <Route path="/"              element={<Home />} />
+
+        {/* ── Auth (accessible from Settings) ── */}
+        <Route path="/login"         element={<Login />} />
+        <Route path="/register"      element={<Register />} />
 
         {/* ── Matches ── */}
-        <Route path="/new-match"      element={<PrivateRoute><NewMatch /></PrivateRoute>} />
-        <Route path="/matches"        element={<PrivateRoute><OpenMatch /></PrivateRoute>} />
-        <Route path="/scoring/:id"    element={<PrivateRoute><Scoring /></PrivateRoute>} />
-        <Route path="/match/:id"      element={<PrivateRoute><MatchReport /></PrivateRoute>} />
+        <Route path="/new-match"     element={<NewMatch />} />
+        <Route path="/matches"       element={<OpenMatch />} />
+        <Route path="/scoring/:id"   element={<Scoring />} />
+        <Route path="/match/:id"     element={<MatchReport />} />
 
         {/* ── Players ── */}
-        <Route path="/players"        element={<PrivateRoute><Players /></PrivateRoute>} />
-        <Route path="/manage-players" element={<PrivateRoute><ManagePlayers /></PrivateRoute>} />
+        <Route path="/players"        element={<Players />} />
+        <Route path="/manage-players" element={<ManagePlayers />} />
 
         {/* ── Tournaments ── */}
-        <Route path="/new-tournament"  element={<PrivateRoute><Tournaments mode="new" /></PrivateRoute>} />
-        <Route path="/tournaments"     element={<PrivateRoute><Tournaments /></PrivateRoute>} />
-        <Route path="/tournaments/:id" element={<PrivateRoute><Tournaments /></PrivateRoute>} />
+        <Route path="/new-tournament"  element={<Tournaments mode="new" />} />
+        <Route path="/tournaments"     element={<Tournaments />} />
+        <Route path="/tournaments/:id" element={<Tournaments />} />
 
         {/* ── Records ── */}
-        <Route path="/records"  element={<PrivateRoute><Records /></PrivateRoute>} />
+        <Route path="/records"   element={<Records />} />
 
         {/* ── Settings ── */}
-        <Route path="/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
+        <Route path="/settings"  element={<Settings />} />
 
         {/* ── Fallback ── */}
         <Route path="*" element={<Navigate to="/" replace />} />
