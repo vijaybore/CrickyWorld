@@ -30,7 +30,7 @@ const BG_COLORS  = ['#7f1d1d','#1e3a5f','#064e3b','#78350f','#3b0764','#134e4a']
 function Avatar({ player, size = 52 }) {
   const initials = (player.name || '?').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
   const bg       = BG_COLORS[(player.name?.charCodeAt(0) || 0) % BG_COLORS.length]
-  const rc       = ROLE_COLOR[player.role] || '#444'
+  const rc       = ROLE_COLOR[player.role] || 'var(--muted)'
   return (
     <div style={{
       width: size, height: size, borderRadius: '50%', flexShrink: 0,
@@ -43,7 +43,7 @@ function Avatar({ player, size = 52 }) {
             width: '100%', height: '100%', background: bg,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontFamily: 'Rajdhani,sans-serif', fontSize: size * 0.36,
-            fontWeight: 700, color: '#fff',
+            fontWeight: 700, color: 'var(--text)',
           }}>{initials}</div>
       }
     </div>
@@ -81,18 +81,18 @@ function PhotoPicker({ current, onUpload, allPlayers = [] }) {
       <div onClick={() => setShowGallery(s => !s)}
         style={{
           width: 90, height: 90, borderRadius: '50%', cursor: 'pointer',
-          border: showGallery ? '2px solid #ff4444' : '2px dashed #3a3a3a',
-          overflow: 'hidden', background: '#0e0e0e',
+          border: showGallery ? '2px solid var(--accent)' : '2px dashed #3a3a3a',
+          overflow: 'hidden', background: 'var(--bg)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           transition: 'border-color 0.15s',
         }}>
         {busy
-          ? <div style={{ fontSize: 11, color: '#555' }}>…</div>
+          ? <div style={{ fontSize: 11, color: 'var(--subtext)' }}>…</div>
           : current
             ? <img src={current} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             : <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: 24 }}>📷</div>
-                <div style={{ fontSize: 9, color: '#555', fontWeight: 700, marginTop: 2 }}>PHOTO</div>
+                <div style={{ fontSize: 9, color: 'var(--subtext)', fontWeight: 700, marginTop: 2 }}>PHOTO</div>
               </div>
         }
       </div>
@@ -100,18 +100,18 @@ function PhotoPicker({ current, onUpload, allPlayers = [] }) {
       {/* action buttons */}
       <div style={{ display: 'flex', gap: 6 }}>
         <button onClick={() => fileRef.current?.click()}
-          style={{ padding: '5px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 11, fontWeight: 800, background: '#1e1e1e', border: '1px solid #333', color: '#aaa' }}>
+          style={{ padding: '5px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 11, fontWeight: 800, background: 'var(--header)', border: '1px solid #333', color: 'var(--subtext)' }}>
           📤 Upload
         </button>
         {existingPhotos.length > 0 && (
           <button onClick={() => setShowGallery(s => !s)}
-            style={{ padding: '5px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 11, fontWeight: 800, background: showGallery ? 'rgba(255,68,68,0.15)' : '#1e1e1e', border: showGallery ? '1px solid rgba(255,68,68,0.4)' : '1px solid #333', color: showGallery ? '#ff6666' : '#aaa' }}>
+            style={{ padding: '5px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 11, fontWeight: 800, background: showGallery ? 'rgba(255,68,68,0.15)' : 'var(--header)', border: showGallery ? '1px solid rgba(255,68,68,0.4)' : '1px solid #333', color: showGallery ? 'var(--accent)' : 'var(--subtext)' }}>
             🖼 Existing
           </button>
         )}
         {current && (
           <button onClick={() => onUpload('')}
-            style={{ padding: '5px 10px', borderRadius: 8, cursor: 'pointer', fontSize: 11, fontWeight: 800, background: '#1e1e1e', border: '1px solid #333', color: '#555' }}>
+            style={{ padding: '5px 10px', borderRadius: 8, cursor: 'pointer', fontSize: 11, fontWeight: 800, background: 'var(--header)', border: '1px solid #333', color: 'var(--subtext)' }}>
             ✕
           </button>
         )}
@@ -120,20 +120,20 @@ function PhotoPicker({ current, onUpload, allPlayers = [] }) {
       {/* existing photos gallery */}
       {showGallery && existingPhotos.length > 0 && (
         <div style={{
-          width: '100%', background: '#111', border: '1px solid #2a2a2a',
+          width: '100%', background: 'var(--surface)', border: '1px solid #2a2a2a',
           borderRadius: 12, padding: 10, marginTop: 2,
         }}>
-          <div style={{ fontSize: 10, color: '#555', fontWeight: 800, letterSpacing: 1, marginBottom: 8 }}>SELECT EXISTING PHOTO</div>
+          <div style={{ fontSize: 10, color: 'var(--subtext)', fontWeight: 800, letterSpacing: 1, marginBottom: 8 }}>SELECT EXISTING PHOTO</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {existingPhotos.map((url, i) => (
               <div key={i} onClick={() => { onUpload(url); setShowGallery(false) }}
                 style={{
                   width: 52, height: 52, borderRadius: '50%', overflow: 'hidden', cursor: 'pointer',
-                  border: current === url ? '2px solid #ff4444' : '2px solid #2a2a2a',
+                  border: current === url ? '2px solid var(--accent)' : '2px solid #2a2a2a',
                   transition: 'border-color 0.13s', flexShrink: 0,
                 }}
-                onMouseOver={e => e.currentTarget.style.borderColor = '#ff4444'}
-                onMouseOut={e  => e.currentTarget.style.borderColor = current === url ? '#ff4444' : '#2a2a2a'}>
+                onMouseOver={e => e.currentTarget.style.borderColor = 'var(--accent)'}
+                onMouseOut={e  => e.currentTarget.style.borderColor = current === url ? 'var(--accent)' : 'var(--muted)'}>
                 <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               </div>
             ))}
@@ -147,12 +147,12 @@ function PhotoPicker({ current, onUpload, allPlayers = [] }) {
 }
 
 // ── Shared sub-components ─────────────────────────────────────────────────────
-const Chip = ({ label, active, color = '#ff4444', onClick }) => (
+const Chip = ({ label, active, color = 'var(--accent)', onClick }) => (
   <button onClick={onClick} style={{
     padding: '7px 16px', borderRadius: 20, border: 'none', cursor: 'pointer',
     fontSize: 12, fontWeight: 800, flexShrink: 0,
-    background: active ? color + '22' : '#1e1e1e',
-    color:      active ? color : '#555',
+    background: active ? color + '22' : 'var(--header)',
+    color:      active ? color : 'var(--subtext)',
     outline:    active ? `1px solid ${color}55` : 'none',
     transition: 'all 0.15s',
   }}>{label}</button>
@@ -160,10 +160,10 @@ const Chip = ({ label, active, color = '#ff4444', onClick }) => (
 
 const FieldInput = ({ label, ...props }) => (
   <div style={{ marginBottom: 13 }}>
-    {label && <div style={{ fontSize: 10, color: '#555', fontWeight: 800, letterSpacing: 1, marginBottom: 5 }}>{label}</div>}
+    {label && <div style={{ fontSize: 10, color: 'var(--subtext)', fontWeight: 800, letterSpacing: 1, marginBottom: 5 }}>{label}</div>}
     <input {...props} style={{
-      width: '100%', background: '#111', border: '1px solid #2a2a2a',
-      borderRadius: 9, padding: '10px 12px', color: '#fff', fontSize: 13,
+      width: '100%', background: 'var(--surface)', border: '1px solid #2a2a2a',
+      borderRadius: 9, padding: '10px 12px', color: 'var(--text)', fontSize: 13,
       outline: 'none', boxSizing: 'border-box', ...props.style
     }} />
   </div>
@@ -172,18 +172,18 @@ const FieldInput = ({ label, ...props }) => (
 // ── STAT GRID (Cricbuzz-style table rows) ─────────────────────────────────────
 function StatTable({ rows }) {
   return (
-    <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
+    <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border)' }}>
       {rows.map((row, i) => (
         <div key={row.label} style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           padding: '11px 14px',
-          background: i % 2 === 0 ? '#1a1a1a' : '#161616',
-          borderBottom: i < rows.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+          background: i % 2 === 0 ? 'var(--card)' : 'var(--header)',
+          borderBottom: i < rows.length - 1 ? '1px solid var(--border2)' : 'none',
         }}>
-          <div style={{ fontSize: 12, color: '#888', fontWeight: 700 }}>{row.label}</div>
+          <div style={{ fontSize: 12, color: 'var(--subtext)', fontWeight: 700 }}>{row.label}</div>
           <div style={{
             fontFamily: 'Rajdhani,sans-serif', fontSize: 18, fontWeight: 700,
-            color: row.color || '#f0f0f0',
+            color: row.color || 'var(--text)',
           }}>{row.value ?? '—'}</div>
         </div>
       ))}
@@ -206,7 +206,7 @@ function ProfileSheet({ player, onClose, onUpdated, onDeleted, allPlayers = [] }
   })
 
   const d  = derive(player)
-  const rc = ROLE_COLOR[player.role] || '#888'
+  const rc = ROLE_COLOR[player.role] || 'var(--subtext)'
 
   const save = async () => {
     try {
@@ -231,12 +231,12 @@ function ProfileSheet({ player, onClose, onUpdated, onDeleted, allPlayers = [] }
   }
 
   const battingRows = [
-    { label: 'Matches',       value: player.totalMatches,    color: '#f0f0f0' },
-    { label: 'Runs',          value: player.totalRuns,       color: '#ff4444' },
-    { label: 'Highest Score', value: player.highestScore,    color: '#ff6666' },
+    { label: 'Matches',       value: player.totalMatches,    color: 'var(--text)' },
+    { label: 'Runs',          value: player.totalRuns,       color: 'var(--accent)' },
+    { label: 'Highest Score', value: player.highestScore,    color: 'var(--accent)' },
     { label: 'Average',       value: d.batAvg,               color: '#60a5fa' },
     { label: 'Strike Rate',   value: d.batSR,                color: '#facc15' },
-    { label: 'Balls Faced',   value: player.totalBallsFaced, color: '#aaa'    },
+    { label: 'Balls Faced',   value: player.totalBallsFaced, color: 'var(--subtext)'    },
     { label: 'Fours (4s)',    value: player.totalFours,      color: '#4ade80' },
     { label: 'Sixes (6s)',    value: player.totalSixes,      color: '#c084fc' },
     { label: 'Half Centuries',value: player.totalFifties,    color: '#fb923c' },
@@ -245,29 +245,29 @@ function ProfileSheet({ player, onClose, onUpdated, onDeleted, allPlayers = [] }
   ]
 
   const bowlingRows = [
-    { label: 'Matches',        value: player.totalMatches,       color: '#f0f0f0' },
+    { label: 'Matches',        value: player.totalMatches,       color: 'var(--text)' },
     { label: 'Wickets',        value: player.totalWickets,       color: '#c084fc' },
-    { label: 'Best Figures',   value: d.bestFig,                 color: '#ff4444' },
+    { label: 'Best Figures',   value: d.bestFig,                 color: 'var(--accent)' },
     { label: 'Economy',        value: d.eco,                     color: '#4ade80' },
     { label: 'Average',        value: d.bowlAvg,                 color: '#60a5fa' },
     { label: 'Strike Rate',    value: d.bowlSR,                  color: '#38bdf8' },
-    { label: 'Overs Bowled',   value: d.overs,                   color: '#aaa'    },
+    { label: 'Overs Bowled',   value: d.overs,                   color: 'var(--subtext)'    },
     { label: 'Runs Conceded',  value: player.totalRunsConceded,  color: '#f87171' },
     { label: 'Dot Balls',      value: player.totalDotBalls,      color: '#a3e635' },
     { label: 'Wides',          value: player.totalWides,         color: '#fb923c' },
-    { label: '5-Wicket Hauls', value: player.fiveWickets,        color: '#ff4444' },
+    { label: '5-Wicket Hauls', value: player.fiveWickets,        color: 'var(--accent)' },
   ]
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 3000, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
       {/* backdrop */}
-      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)' }} onClick={onClose} />
+      <div style={{ position: 'absolute', inset: 0, background: 'var(--overlay)' }} onClick={onClose} />
 
       {/* sheet */}
       <div style={{
-        position: 'relative', background: '#141414', borderRadius: '22px 22px 0 0',
+        position: 'relative', background: 'var(--bg)', borderRadius: '22px 22px 0 0',
         maxHeight: '92vh', overflowY: 'auto',
-        border: '1px solid rgba(255,255,255,0.07)',
+        border: '1px solid var(--border)',
         boxShadow: '0 -12px 48px rgba(0,0,0,0.8)',
       }}>
         {/* handle */}
@@ -276,16 +276,16 @@ function ProfileSheet({ player, onClose, onUpdated, onDeleted, allPlayers = [] }
         {/* ── TOP BAR ── */}
         <div style={{
           padding: '14px 16px 12px', display: 'flex', justifyContent: 'space-between',
-          alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)',
+          alignItems: 'center', borderBottom: '1px solid var(--border)',
         }}>
-          <div style={{ fontFamily: 'Rajdhani,sans-serif', fontSize: 16, fontWeight: 700, color: '#aaa' }}>
+          <div style={{ fontFamily: 'Rajdhani,sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--subtext)' }}>
             {editing ? 'Edit Player' : 'Player Profile'}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             {!editing && (
               <>
                 <button onClick={() => setEditing(true)}
-                  style={{ padding: '7px 13px', borderRadius: 9, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.09)', color: '#bbb', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                  style={{ padding: '7px 13px', borderRadius: 9, background: 'var(--border)', border: '1px solid var(--border)', color: 'var(--text2)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                   ✎ Edit
                 </button>
                 <button onClick={sync} disabled={syncing}
@@ -312,15 +312,15 @@ function ProfileSheet({ player, onClose, onUpdated, onDeleted, allPlayers = [] }
 
             {/* role selector */}
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 10, color: '#555', fontWeight: 800, letterSpacing: 1, marginBottom: 8 }}>ROLE</div>
+              <div style={{ fontSize: 10, color: 'var(--subtext)', fontWeight: 800, letterSpacing: 1, marginBottom: 8 }}>ROLE</div>
               <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
                 {ROLES.map(r => (
                   <button key={r} onClick={() => setForm(f => ({ ...f, role: r }))}
                     style={{
                       padding: '7px 13px', borderRadius: 9, cursor: 'pointer', fontSize: 11, fontWeight: 800,
-                      background: form.role === r ? ROLE_COLOR[r] + '22' : '#1a1a1a',
-                      border: `1px solid ${form.role === r ? ROLE_COLOR[r] : '#2a2a2a'}`,
-                      color: form.role === r ? ROLE_COLOR[r] : '#555',
+                      background: form.role === r ? ROLE_COLOR[r] + '22' : 'var(--card)',
+                      border: `1px solid ${form.role === r ? ROLE_COLOR[r] : 'var(--muted)'}`,
+                      color: form.role === r ? ROLE_COLOR[r] : 'var(--subtext)',
                     }}>
                     {ROLE_ICON[r]} {ROLE_LABEL[r]}
                   </button>
@@ -335,11 +335,11 @@ function ProfileSheet({ player, onClose, onUpdated, onDeleted, allPlayers = [] }
 
             <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
               <button onClick={() => setEditing(false)}
-                style={{ flex: 1, padding: '12px', borderRadius: 10, background: '#1a1a1a', border: '1px solid #2a2a2a', color: '#666', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
+                style={{ flex: 1, padding: '12px', borderRadius: 10, background: 'var(--card)', border: '1px solid #2a2a2a', color: 'var(--subtext)', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
                 Cancel
               </button>
               <button onClick={save} disabled={!form.name.trim()}
-                style={{ flex: 2, padding: '12px', borderRadius: 10, border: 'none', color: '#fff', fontWeight: 800, fontSize: 13, cursor: 'pointer', background: 'linear-gradient(135deg,#cc0000,#ff4444)' }}>
+                style={{ flex: 2, padding: '12px', borderRadius: 10, border: 'none', color: 'var(--text)', fontWeight: 800, fontSize: 13, cursor: 'pointer', background:'linear-gradient(135deg,var(--accent2),var(--accent))' }}>
                 Save Changes
               </button>
             </div>
@@ -353,7 +353,7 @@ function ProfileSheet({ player, onClose, onUpdated, onDeleted, allPlayers = [] }
             <div style={{
               padding: '20px 18px 16px',
               background: 'linear-gradient(180deg, #1e1010 0%, #141414 100%)',
-              borderBottom: '1px solid rgba(255,255,255,0.06)',
+              borderBottom: '1px solid var(--border)',
               display: 'flex', gap: 16, alignItems: 'center',
             }}>
               <Avatar player={player} size={76} />
@@ -363,7 +363,7 @@ function ProfileSheet({ player, onClose, onUpdated, onDeleted, allPlayers = [] }
                     {player.name}
                   </div>
                   {player.jerseyNumber && (
-                    <div style={{ fontSize: 12, color: '#555', fontWeight: 800 }}>#{player.jerseyNumber}</div>
+                    <div style={{ fontSize: 12, color: 'var(--subtext)', fontWeight: 800 }}>#{player.jerseyNumber}</div>
                   )}
                 </div>
                 <div style={{
@@ -375,9 +375,9 @@ function ProfileSheet({ player, onClose, onUpdated, onDeleted, allPlayers = [] }
                   {ROLE_ICON[player.role]} {ROLE_LABEL[player.role] || player.role}
                 </div>
                 {(player.battingStyle || player.bowlingStyle) && (
-                  <div style={{ fontSize: 11, color: '#555', fontWeight: 600, lineHeight: 1.5 }}>
+                  <div style={{ fontSize: 11, color: 'var(--subtext)', fontWeight: 600, lineHeight: 1.5 }}>
                     {player.battingStyle && <span>🏏 {player.battingStyle}</span>}
-                    {player.battingStyle && player.bowlingStyle && <span style={{ margin: '0 6px', color: '#333' }}>·</span>}
+                    {player.battingStyle && player.bowlingStyle && <span style={{ margin: '0 6px', color: 'var(--text2)' }}>·</span>}
                     {player.bowlingStyle && <span>🎳 {player.bowlingStyle}</span>}
                   </div>
                 )}
@@ -385,18 +385,18 @@ function ProfileSheet({ player, onClose, onUpdated, onDeleted, allPlayers = [] }
             </div>
 
             {/* headline 3-stat strip */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderBottom: '1px solid var(--border)' }}>
               {[
-                { label: 'MATCHES', value: player.totalMatches,  color: '#f0f0f0' },
-                { label: 'RUNS',    value: player.totalRuns,     color: '#ff4444' },
+                { label: 'MATCHES', value: player.totalMatches,  color: 'var(--text)' },
+                { label: 'RUNS',    value: player.totalRuns,     color: 'var(--accent)' },
                 { label: 'WICKETS', value: player.totalWickets,  color: '#c084fc' },
               ].map((s, i) => (
                 <div key={s.label} style={{
                   padding: '14px 6px', textAlign: 'center',
-                  borderRight: i < 2 ? '1px solid rgba(255,255,255,0.06)' : 'none',
+                  borderRight: i < 2 ? '1px solid var(--border)' : 'none',
                 }}>
                   <div style={{ fontFamily: 'Rajdhani,sans-serif', fontSize: 28, fontWeight: 700, color: s.color, lineHeight: 1 }}>{s.value}</div>
-                  <div style={{ fontSize: 9, color: '#555', fontWeight: 800, letterSpacing: 1, marginTop: 3 }}>{s.label}</div>
+                  <div style={{ fontSize: 9, color: 'var(--subtext)', fontWeight: 800, letterSpacing: 1, marginTop: 3 }}>{s.label}</div>
                 </div>
               ))}
             </div>
@@ -412,14 +412,14 @@ function ProfileSheet({ player, onClose, onUpdated, onDeleted, allPlayers = [] }
               <StatTable rows={tab === 'batting' ? battingRows : bowlingRows} />
 
               {/* sync note */}
-              <div style={{ fontSize: 11, color: '#333', textAlign: 'center', padding: '10px 0 4px', fontWeight: 600 }}>
+              <div style={{ fontSize: 11, color: 'var(--text2)', textAlign: 'center', padding: '10px 0 4px', fontWeight: 600 }}>
                 Tap ↻ Sync to refresh stats from all completed matches
               </div>
 
               {/* delete */}
               <div style={{ paddingBottom: 32, marginTop: 10 }}>
                 <button onClick={del}
-                  style={{ width: '100%', padding: '12px', borderRadius: 11, background: 'transparent', border: '1px solid rgba(255,68,68,0.2)', color: '#ff4444', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
+                  style={{ width: '100%', padding: '12px', borderRadius: 11, background: 'transparent', border: '1px solid rgba(255,68,68,0.2)', color: 'var(--accent)', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
                   🗑 Delete Player
                 </button>
               </div>
@@ -434,7 +434,7 @@ function ProfileSheet({ player, onClose, onUpdated, onDeleted, allPlayers = [] }
 // ── PLAYER CARD (list item) ───────────────────────────────────────────────────
 function PlayerCard({ player, onClick }) {
   const d    = derive(player)
-  const rc   = ROLE_COLOR[player.role] || '#555'
+  const rc   = ROLE_COLOR[player.role] || 'var(--subtext)'
   const hasBat  = player.totalRuns > 0 || player.totalBallsFaced > 0
   const hasBowl = player.totalWickets > 0 || player.totalBallsBowled > 0
 
@@ -442,27 +442,27 @@ function PlayerCard({ player, onClick }) {
     <div onClick={onClick}
       style={{
         display: 'flex', alignItems: 'center', gap: 12,
-        background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.07)',
+        background: 'var(--card)', border: '1px solid var(--border)',
         borderRadius: 14, padding: '12px 14px', marginBottom: 8, cursor: 'pointer',
         transition: 'border-color 0.14s, background 0.14s',
       }}
-      onMouseOver={e => { e.currentTarget.style.borderColor = 'rgba(255,68,68,0.25)'; e.currentTarget.style.background = '#1e1e1e' }}
-      onMouseOut={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; e.currentTarget.style.background = '#1a1a1a' }}>
+      onMouseOver={e => { e.currentTarget.style.borderColor = 'var(--accentRing)'; e.currentTarget.style.background = 'var(--header)' }}
+      onMouseOut={e  => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--card)' }}>
 
       <Avatar player={player} size={48} />
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 4 }}>
-          <div style={{ fontFamily: 'Rajdhani,sans-serif', fontSize: 17, fontWeight: 700, color: '#f0f0f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div style={{ fontFamily: 'Rajdhani,sans-serif', fontSize: 17, fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {player.name}
           </div>
-          {player.jerseyNumber && <div style={{ fontSize: 10, color: '#444', fontWeight: 800 }}>#{player.jerseyNumber}</div>}
+          {player.jerseyNumber && <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 800 }}>#{player.jerseyNumber}</div>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 10, fontWeight: 800, color: rc, background: rc + '15', padding: '2px 8px', borderRadius: 20 }}>
             {ROLE_ICON[player.role]} {ROLE_LABEL[player.role] || player.role}
           </span>
-          <span style={{ fontSize: 10, color: '#444' }}>{player.totalMatches}M</span>
+          <span style={{ fontSize: 10, color: 'var(--muted)' }}>{player.totalMatches}M</span>
         </div>
       </div>
 
@@ -470,14 +470,14 @@ function PlayerCard({ player, onClick }) {
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
         {hasBat && (
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontFamily: 'Rajdhani,sans-serif', fontSize: 18, fontWeight: 700, color: '#ff4444', lineHeight: 1 }}>{player.totalRuns}</div>
-            <div style={{ fontSize: 9, color: '#444', fontWeight: 800 }}>RUNS</div>
+            <div style={{ fontFamily: 'Rajdhani,sans-serif', fontSize: 18, fontWeight: 700, color: 'var(--accent)', lineHeight: 1 }}>{player.totalRuns}</div>
+            <div style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 800 }}>RUNS</div>
           </div>
         )}
         {hasBowl && (
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontFamily: 'Rajdhani,sans-serif', fontSize: 18, fontWeight: 700, color: '#c084fc', lineHeight: 1 }}>{player.totalWickets}</div>
-            <div style={{ fontSize: 9, color: '#444', fontWeight: 800 }}>WKTS</div>
+            <div style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 800 }}>WKTS</div>
           </div>
         )}
         <span style={{ color: '#2e2e2e', fontSize: 18 }}>›</span>
@@ -502,8 +502,8 @@ function AddForm({ onCreated, onCancel, allPlayers = [] }) {
   }
 
   return (
-    <div style={{ background: '#1a1a1a', border: '1px solid rgba(255,68,68,0.2)', borderRadius: 14, padding: 16, marginBottom: 12 }}>
-      <div style={{ fontFamily: 'Rajdhani,sans-serif', fontSize: 16, fontWeight: 700, color: '#f0f0f0', marginBottom: 14 }}>New Player</div>
+    <div style={{ background: 'var(--card)', border: '1px solid rgba(255,68,68,0.2)', borderRadius: 14, padding: 16, marginBottom: 12 }}>
+      <div style={{ fontFamily: 'Rajdhani,sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 14 }}>New Player</div>
 
       <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', marginBottom: 4 }}>
         <PhotoPicker current={form.photoUrl} onUpload={url => setForm(f => ({ ...f, photoUrl: url }))} allPlayers={allPlayers} />
@@ -517,15 +517,15 @@ function AddForm({ onCreated, onCancel, allPlayers = [] }) {
 
       {/* role */}
       <div style={{ marginBottom: 13 }}>
-        <div style={{ fontSize: 10, color: '#555', fontWeight: 800, letterSpacing: 1, marginBottom: 7 }}>ROLE</div>
+        <div style={{ fontSize: 10, color: 'var(--subtext)', fontWeight: 800, letterSpacing: 1, marginBottom: 7 }}>ROLE</div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {ROLES.map(r => (
             <button key={r} onClick={() => setForm(f => ({ ...f, role: r }))}
               style={{
                 padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontSize: 11, fontWeight: 800,
-                background: form.role === r ? ROLE_COLOR[r] + '22' : '#111',
-                border: `1px solid ${form.role === r ? ROLE_COLOR[r] : '#2a2a2a'}`,
-                color:  form.role === r ? ROLE_COLOR[r] : '#555',
+                background: form.role === r ? ROLE_COLOR[r] + '22' : 'var(--surface)',
+                border: `1px solid ${form.role === r ? ROLE_COLOR[r] : 'var(--muted)'}`,
+                color:  form.role === r ? ROLE_COLOR[r] : 'var(--subtext)',
               }}>
               {ROLE_ICON[r]} {ROLE_LABEL[r]}
             </button>
@@ -540,14 +540,14 @@ function AddForm({ onCreated, onCancel, allPlayers = [] }) {
 
       <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
         <button onClick={onCancel}
-          style={{ flex: 1, padding: '12px', borderRadius: 10, background: '#111', border: '1px solid #2a2a2a', color: '#555', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
+          style={{ flex: 1, padding: '12px', borderRadius: 10, background: 'var(--surface)', border: '1px solid #2a2a2a', color: 'var(--subtext)', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
           Cancel
         </button>
         <button onClick={save} disabled={!form.name.trim() || saving}
           style={{
             flex: 2, padding: '12px', borderRadius: 10, border: 'none', fontWeight: 800, fontSize: 13, cursor: 'pointer',
             background: form.name.trim() ? 'linear-gradient(135deg,#cc0000,#ff4444)' : '#222',
-            color: form.name.trim() ? '#fff' : '#444',
+            color: form.name.trim() ? 'var(--text)' : 'var(--muted)',
           }}>
           {saving ? 'Saving…' : '+ Add Player'}
         </button>
@@ -591,40 +591,40 @@ export default function Players() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Nunito:wght@400;600;700;800&display=swap');
         *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
-        html, body, #root { height:100%; background:#0a0a0a; font-family:'Nunito',sans-serif; }
+        html, body, #root { height:100%; background:var(--bg,#0a0a0a); font-family:'Nunito',sans-serif; }
         ::-webkit-scrollbar { width:4px; }
-        ::-webkit-scrollbar-track { background:#111; }
-        ::-webkit-scrollbar-thumb { background:#2a2a2a; border-radius:2px; }
+        ::-webkit-scrollbar-track { background:var(--surface); }
+        ::-webkit-scrollbar-thumb { background:var(--muted); border-radius:2px; }
       `}</style>
 
-      <div style={{ minHeight:'100vh', background:'#0a0a0a', display:'flex', justifyContent:'center' }}>
-        <div style={{ width:'100%', maxWidth:500, minHeight:'100vh', background:'#111', display:'flex', flexDirection:'column' }}>
+      <div style={{ minHeight:'100vh', background:'var(--bg)', display:'flex', justifyContent:'center' }}>
+        <div style={{ width:'100%', maxWidth:500, minHeight:'100vh', background:'var(--surface)', display:'flex', flexDirection:'column' }}>
 
           {/* ── HEADER ── */}
-          <div style={{ background:'#1a1a1a', borderBottom:'1px solid rgba(255,255,255,0.06)', flexShrink:0 }}>
+          <div style={{ background:'var(--card)', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
             <div style={{ padding:'14px 14px 10px', display:'flex', alignItems:'center', gap:10 }}>
               <button onClick={() => navigate('/')}
-                style={{ width:34, height:34, borderRadius:9, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.08)', color:'#aaa', fontSize:16, cursor:'pointer', flexShrink:0 }}>←</button>
-              <div style={{ flex:1, fontFamily:'Rajdhani,sans-serif', fontSize:22, fontWeight:700, color:'#f0f0f0', letterSpacing:1 }}>👤 Players</div>
+                style={{ width:34, height:34, borderRadius:9, background:'var(--border)', border:'1px solid var(--border)', color:'var(--subtext)', fontSize:16, cursor:'pointer', flexShrink:0 }}>←</button>
+              <div style={{ flex:1, fontFamily:'Rajdhani,sans-serif', fontSize:22, fontWeight:700, color:'var(--text)', letterSpacing:1 }}>👤 Players</div>
               <button onClick={() => setAdding(a => !a)}
                 style={{ padding:'8px 16px', borderRadius:10, fontWeight:800, fontSize:13, cursor:'pointer', border:'none',
-                  background: adding ? '#1e1e1e' : 'linear-gradient(135deg,#cc0000,#ff4444)',
-                  color: adding ? '#666' : '#fff',
+                  background: adding ? 'var(--header)' : 'linear-gradient(135deg,#cc0000,#ff4444)',
+                  color: adding ? 'var(--subtext)' : 'var(--text)',
                   outline: adding ? '1px solid #2a2a2a' : 'none' }}>
                 {adding ? '✕ Cancel' : '+ Add'}
               </button>
             </div>
 
             {/* summary strip */}
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', borderTop:'1px solid rgba(255,255,255,0.05)' }}>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', borderTop:'1px solid var(--border2)' }}>
               {[
                 { label:'PLAYERS',  value: players.length,                             color:'#60a5fa' },
-                { label:'RUNS',     value: players.reduce((s,p)=>s+p.totalRuns,0),    color:'#ff4444' },
+                { label:'RUNS',     value: players.reduce((s,p)=>s+p.totalRuns,0),    color:'var(--accent)' },
                 { label:'WICKETS',  value: players.reduce((s,p)=>s+p.totalWickets,0), color:'#c084fc' },
               ].map((s, i) => (
-                <div key={s.label} style={{ padding:'9px 6px', textAlign:'center', borderRight: i<2?'1px solid rgba(255,255,255,0.05)':'none' }}>
+                <div key={s.label} style={{ padding:'9px 6px', textAlign:'center', borderRight: i<2?'1px solid var(--border2)':'none' }}>
                   <div style={{ fontFamily:'Rajdhani,sans-serif', fontSize:20, fontWeight:700, color:s.color }}>{s.value}</div>
-                  <div style={{ fontSize:9, color:'#444', fontWeight:800, letterSpacing:0.8 }}>{s.label}</div>
+                  <div style={{ fontSize:9, color:'var(--muted)', fontWeight:800, letterSpacing:0.8 }}>{s.label}</div>
                 </div>
               ))}
             </div>
@@ -633,7 +633,7 @@ export default function Players() {
             <div style={{ padding:'10px 12px 0' }}>
               <input value={search} onChange={e => setSearch(e.target.value)}
                 placeholder="🔍  Search player..."
-                style={{ width:'100%', background:'#111', border:'1px solid #252525', borderRadius:10, padding:'10px 14px', color:'#fff', fontSize:13, outline:'none', boxSizing:'border-box', marginBottom:8 }} />
+                style={{ width:'100%', background:'var(--surface)', border:'1px solid #252525', borderRadius:10, padding:'10px 14px', color:'var(--text)', fontSize:13, outline:'none', boxSizing:'border-box', marginBottom:8 }} />
 
               {/* filter + sort chips */}
               <div style={{ display:'flex', gap:6, overflowX:'auto', paddingBottom:10 }}>
@@ -641,7 +641,7 @@ export default function Players() {
                   <Chip key={r.key} label={r.label} active={roleF===r.key}
                     onClick={() => setRoleF(r.key)} />
                 ))}
-                <div style={{ width:1, background:'#2a2a2a', flexShrink:0, margin:'4px 4px' }}/>
+                <div style={{ width:1, background:'var(--muted)', flexShrink:0, margin:'4px 4px' }}/>
                 {SORT_OPTIONS.map(s => (
                   <Chip key={s.key} label={s.label} active={sortBy===s.key}
                     color="#facc15" onClick={() => setSortBy(s.key)} />
@@ -661,16 +661,16 @@ export default function Players() {
             )}
 
             {loading ? (
-              <div style={{ textAlign:'center', padding:60, color:'#555' }}>
+              <div style={{ textAlign:'center', padding:60, color:'var(--subtext)' }}>
                 <div style={{ fontSize:36, marginBottom:10 }}>👤</div>Loading players…
               </div>
             ) : sorted.length === 0 ? (
-              <div style={{ textAlign:'center', padding:'60px 20px', color:'#444' }}>
+              <div style={{ textAlign:'center', padding:'60px 20px', color:'var(--muted)' }}>
                 <div style={{ fontSize:48, marginBottom:12 }}>👥</div>
-                <div style={{ fontSize:14, color:'#555', fontWeight:700, marginBottom:4 }}>
+                <div style={{ fontSize:14, color:'var(--subtext)', fontWeight:700, marginBottom:4 }}>
                   {players.length === 0 ? 'No players yet' : 'No matches found'}
                 </div>
-                <div style={{ fontSize:12, color:'#3a3a3a' }}>
+                <div style={{ fontSize:12, color:'var(--muted)' }}>
                   {players.length === 0 ? 'Tap + Add to create the first player' : 'Try a different search or filter'}
                 </div>
               </div>
