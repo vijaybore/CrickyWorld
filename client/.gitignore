@@ -22,3 +22,15 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# Node
+node_modules/
+npm-debug.log
+
+# Environment variables (NEVER push these)
+.env
+client/.env
+server/.env
+
+# Build output
+dist/
+build/

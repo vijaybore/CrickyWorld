@@ -16,7 +16,7 @@ export default function NewMatch() {
   const [loading,    setLoading]    = useState(false)
   const [error,      setError]      = useState('')
 
-  const clamp = (val, min = 1, max = 9) => Math.max(min, Math.min(max, val))
+  const clamp = (val, min = 0, max = 9) => Math.max(min, Math.min(max, val))
 
   const handleSubmit = async () => {
     setError('')
@@ -292,7 +292,10 @@ function Stepper({ value, onChange }) {
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <button style={btnStyle('left')}  onClick={() => onChange(value - 1)}>−</button>
+      <button
+  style={{ ...btnStyle('left'), opacity: value <= 0 ? 0.3 : 1, cursor: value <= 0 ? 'not-allowed' : 'pointer' }}
+  onClick={() => { if (value > 0) onChange(value - 1) }}
+>−</button>
       <span style={{
         minWidth: 24,
         textAlign: 'center',

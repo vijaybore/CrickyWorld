@@ -1,38 +1,79 @@
 const mongoose = require('mongoose');
 
-const playerSchema = new mongoose.Schema({
-  name:     { type: String, required: true },
-  imageUrl: { type: String, default: '' },
+const teamPlayerSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  role: { type: String, enum: ['batsman', 'bowler', 'allrounder', 'wicketkeeper', ''], default: '' },
 });
 
 const teamSchema = new mongoose.Schema({
-  name:      { type: String, required: true },
-  logoUrl:   { type: String, default: '' },
-  players:   [playerSchema],
+  name: { type: String, required: true },
+  shortName: { type: String, default: '' },
+  logoUrl: { type: String, default: '' },
+  players: [teamPlayerSchema],
+  colorHex: { type: String, default: '#22c55e' },
 });
 
 const fixtureSchema = new mongoose.Schema({
-  team1:       { type: String, required: true },
-  team2:       { type: String, required: true },
-  date:        { type: String, default: '' },
-  time:        { type: String, default: '' },
-  venue:       { type: String, default: '' },
-  stage:       { type: String, default: 'league' }, // league | sf1 | sf2 | q1 | q2 | elim | qf1 | qf2 | qf3 | qf4 | final
-  matchId:     { type: mongoose.Schema.Types.ObjectId, ref: 'Match', default: null },
-  status:      { type: String, enum: ['scheduled','live','completed'], default: 'scheduled' },
-  result:      { type: String, default: '' },
-  winner:      { type: String, default: '' },
-  team1Score:  { type: String, default: '' },
-  team2Score:  { type: String, default: '' },
+  label: { type: String, default: '' }, // e.g. "Match 1", "SF 1", "Final"
+  team1: { type: String, required: true },
+  team2: { type: String, required: true },
+  matchId: { type: mongoose.Schema.Types.ObjectId, ref: 'Match', default: null },
+  stage: { type: String, enum: ['group', 'qualifier1', 'eliminator', 'qualifier2', 'semifinal1', 'semifinal2', 'final'], default: 'group' },
+  scheduledAt: { type: Date, default: null },
+  venue: { type: String, default: '' },
+  result: { type: String, default: '' },
+  status: { type: String, enum: ['scheduled', 'live', 'completed', 'cancelled'], default: 'scheduled' },
+  team1Score: { runs: Number, wickets: Number, balls: Number },
+  team2Score: { runs: Number, wickets: Number, balls: Number },
+  winner: { type: String, default: '' },
+});
+
+const pointsEntrySchema = new mongoose.Schema({
+  team: { type: String, required: true },
+  played: { type: Number, default: 0 },
+  won: { type: Number, default: 0 },
+  lost: { type: Number, default: 0 },
+  tied: { type: Number, default: 0 },
+  noResult: { type: Number, default: 0 },
+  points: { type: Number, default: 0 },
+  runsFor: { type: Number, default: 0 },
+  ballsFor: { type: Number, default: 0 },
+  runsAgainst: { type: Number, default: 0 },
+  ballsAgainst: { type: Number, default: 0 },
+  nrr: { type: Number, default: 0 },
 });
 
 const tournamentSchema = new mongoose.Schema({
-  name:       { type: String, required: true },
-  overs:      { type: Number, default: 10 },
-  status:     { type: String, enum: ['setup','league','playoffs','completed'], default: 'setup' },
-  teams:      [teamSchema],
-  fixtures:   [fixtureSchema],
-  createdBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  name: { type: String, required: true, trim: true },
+  description: { type: String, default: '' },
+  logoUrl: { type: String, default: '' },
+  overs: { type: Number, required: true, min: 1 },
+  format: {
+    type: String,
+    enum: ['round-robin', 'knockout', 'round-robin-playoffs'],
+    default: 'round-robin',
+  },
+  playoffFormat: {
+    type: String,
+    enum: ['ipl', 'semifinal'],
+    default: 'semifinal',
+  },
+  status: {
+    type: String,
+    enum: ['upcoming', 'ongoing', 'completed'],
+    default: 'upcoming',
+  },
+  startDate: { type: Date, default: null },
+  endDate: { type: Date, default: null },
+  teams: [teamSchema],
+  fixtures: [fixtureSchema],
+  pointsTable: [pointsEntrySchema],
+  winner: { type: String, default: '' },
+  year: { type: Number, default: () => new Date().getFullYear() },
 }, { timestamps: true });
+
+tournamentSchema.index({ createdAt: -1 });
+tournamentSchema.index({ status: 1 });
+tournamentSchema.index({ year: -1 });
 
 module.exports = mongoose.model('Tournament', tournamentSchema);

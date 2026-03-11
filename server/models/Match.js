@@ -7,6 +7,9 @@ const ballSchema = new mongoose.Schema({
   isNoBall: { type: Boolean, default: false },
   batsmanName: String,
   bowlerName: String,
+  wicketType: String,
+  assistPlayer: String,
+  extraRuns: { type: Number, default: 0 },
 });
 
 const battingStatsSchema = new mongoose.Schema({
@@ -16,6 +19,9 @@ const battingStatsSchema = new mongoose.Schema({
   fours: { type: Number, default: 0 },
   sixes: { type: Number, default: 0 },
   isOut: { type: Boolean, default: false },
+  wicketType: String,
+  bowlerName: String,
+  assistPlayer: String,
 });
 
 const bowlingStatsSchema = new mongoose.Schema({
@@ -56,9 +62,14 @@ const matchSchema = new mongoose.Schema({
   wideRuns: { type: Number, default: 0 },
   noBallRuns: { type: Number, default: 0 },
   result: { type: String, default: '' },
+  // Tournament linkage
+  tournamentId: { type: String, default: null },
+  tournamentName: { type: String, default: null },
+  fixtureId: { type: String, default: null },
 }, { timestamps: true });
 
-matchSchema.index({ createdAt: -1 })
-matchSchema.index({ status: 1 })
+matchSchema.index({ createdAt: -1 });
+matchSchema.index({ status: 1 });
+matchSchema.index({ tournamentId: 1 });
 
 module.exports = mongoose.model('Match', matchSchema);

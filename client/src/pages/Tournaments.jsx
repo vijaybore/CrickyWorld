@@ -1,1447 +1,1276 @@
-import { useAuth } from '../context/AuthContext'
-import { useState, useEffect, useRef } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
-import axios from 'axios'
+import { useState, useCallback, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import axios from "axios";
 
-const API = '/api/tournaments'
-const token = () => localStorage.getItem('token')
-const headers = () => ({ Authorization: `Bearer ${token()}` })
+// ─── Theme tokens: CrickyWorld Black & Red ────────────────────────────────────
+const T = {
+  bg: "#0a0a0a",
+  surface: "#111111",
+  card: "#181818",
+  cardHover: "#1f1f1f",
+  border: "#2a2a2a",
+  borderHover: "#3a3a3a",
+  accent: "#e53e3e",
+  accentBright: "#fc4444",
+  accentDim: "#3a0a0a",
+  accentGlow: "#e53e3e28",
+  gold: "#f59e0b",
+  goldDim: "#78350f",
+  red: "#e53e3e",
+  redDim: "#3a0a0a",
+  orange: "#f97316",
+  sky: "#60a5fa",
+  purple: "#a78bfa",
+  text: "#f5f5f5",
+  textMid: "#a3a3a3",
+  textDim: "#525252",
+  textFaint: "#1c1c1c",
+};
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-const fmt = b => `${Math.floor(b/6)}.${b%6}`
+// ─── Utilities ────────────────────────────────────────────────────────────────
+const uid = () => Math.random().toString(36).slice(2, 10);
+const fmt2 = (n) => (!isFinite(n) || isNaN(n) ? "0.00" : n.toFixed(2));
+const ovsDisp = (balls) => `${Math.floor(balls / 6)}.${balls % 6}`;
+const sr = (r, b) => b > 0 ? fmt2((r / b) * 100) : "—";
+const econ = (r, b) => b > 0 ? fmt2((r / b) * 6) : "—";
 
-function computePoints(teams, fixtures) {
-  const table = {}
-  teams.forEach(t => {
-    table[t.name] = { name:t.name, logoUrl:t.logoUrl, p:0, w:0, l:0, pts:0, nrr:0, runsFor:0, ballsFor:0, runsAgainst:0, ballsAgainst:0 }
-  })
-  fixtures.filter(f => f.stage === 'league' && f.status === 'completed' && f.winner).forEach(f => {
-    const t1 = table[f.team1], t2 = table[f.team2]
-    if (!t1 || !t2) return
-    t1.p++; t2.p++
-    if (f.winner === f.team1) { t1.w++; t1.pts += 2; t2.l++ }
-    else                       { t2.w++; t2.pts += 2; t1.l++ }
-    // parse scores for NRR
-    const parse = s => {
-      if (!s) return null
-      const m = s.match(/(\d+)\/(\d+)\s*\(([0-9.]+)\)/)
-      if (!m) return null
-      const balls = Math.floor(parseFloat(m[3]))*6 + (parseFloat(m[3]) % 1 * 10)
-      return { runs: parseInt(m[1]), balls }
+// ─── Schedule format definitions ──────────────────────────────────────────────
+const FORMATS = [
+  { key: "round_robin", label: "Round Robin", icon: "⟳", desc: "Every team plays against every other team once.", minTeams: 2 },
+  { key: "double_rr", label: "Double Round Robin", icon: "⟳⟳", desc: "Every team plays against every other team twice (home & away).", minTeams: 2 },
+  { key: "knockout", label: "Knockout", icon: "⚡", desc: "Losing team is eliminated after each match. Winner advances to next round.", minTeams: 2 },
+  { key: "top2_final", label: "Top 2 Final", icon: "🥇", desc: "All teams play league matches. Top 2 teams in standings play the Final.", minTeams: 3 },
+  { key: "ipl_playoffs", label: "IPL Playoffs", icon: "🏆", desc: "Top 4 teams qualify for Qualifier 1, Eliminator, Qualifier 2, and the Final.", minTeams: 4 },
+  { key: "semi_final", label: "Semi Final Format", icon: "🎯", desc: "Top 4 teams qualify for Semi Final 1, Semi Final 2, then the Final.", minTeams: 4 },
+];
+
+// ─── Balanced Round Robin (Circle Method) ─────────────────────────────────────
+// Generates fixtures so no team plays consecutive back-to-back matches.
+// Uses the standard "circle rotation" algorithm for fair scheduling.
+function balancedRoundRobin(teams) {
+  const ts = [...teams];
+  // Pad with BYE if odd number of teams
+  if (ts.length % 2 !== 0) ts.push("__BYE__");
+  const n = ts.length;
+  const rounds = n - 1;
+  const perRound = n / 2;
+  const schedule = []; // schedule[round] = array of [t1, t2]
+
+  const arr = [...ts];
+  for (let r = 0; r < rounds; r++) {
+    const round = [];
+    for (let i = 0; i < perRound; i++) {
+      const t1 = arr[i];
+      const t2 = arr[n - 1 - i];
+      if (t1 !== "__BYE__" && t2 !== "__BYE__") {
+        round.push([t1, t2]);
+      }
     }
-    const s1 = parse(f.team1Score), s2 = parse(f.team2Score)
-    if (s1 && s2) {
-      t1.runsFor += s1.runs;    t1.ballsFor += s1.balls
-      t1.runsAgainst += s2.runs; t1.ballsAgainst += s2.balls
-      t2.runsFor += s2.runs;    t2.ballsFor += s2.balls
-      t2.runsAgainst += s1.runs; t2.ballsAgainst += s1.balls
-    }
-  })
-  Object.values(table).forEach(t => {
-    const rr1 = t.ballsFor      > 0 ? t.runsFor      / (t.ballsFor/6)      : 0
-    const rr2 = t.ballsAgainst  > 0 ? t.runsAgainst  / (t.ballsAgainst/6)  : 0
-    t.nrr = (rr1 - rr2).toFixed(3)
-  })
-  return Object.values(table).sort((a,b) => b.pts - a.pts || parseFloat(b.nrr) - parseFloat(a.nrr))
+    schedule.push(round);
+    // Rotate all except the first element
+    const last = arr.pop();
+    arr.splice(1, 0, last);
+  }
+  return schedule; // array of rounds, each round has pairs
 }
 
-function computeStats(fixtures, allMatches) {
-  const players = {}
-  const get = name => {
-    if (!players[name]) players[name] = { name, runs:0, balls:0, fours:0, sixes:0, fifties:0, hundreds:0, highScore:0, timesOut:0, wickets:0, oversBowled:0, runsConceded:0, wides:0, bestWickets:0, bestWicketsRuns:999, dotBalls:0, fiveWickets:0, matchesBowled:0 }
-    return players[name]
+function makeFixtures(teams, fmt) {
+  const out = [];
+  let n = 1;
+  const mk = (t1, t2, stage) => ({ id: uid(), team1: t1, team2: t2, stage, status: "scheduled", matchNo: n++, date: "", time: "", overs: null });
+
+  // Helper: generate balanced league fixtures (interleaved round by round)
+  const leagueFixtures = (ts, stage) => {
+    const rounds = balancedRoundRobin(ts);
+    rounds.forEach(round => {
+      round.forEach(([t1, t2]) => out.push(mk(t1, t2, stage)));
+    });
+  };
+
+  if (fmt === "round_robin") {
+    leagueFixtures(teams, "League");
+  } else if (fmt === "double_rr") {
+    leagueFixtures(teams, "League");
+    // Second leg: swap home/away
+    const rounds2 = balancedRoundRobin(teams);
+    rounds2.forEach(round => {
+      round.forEach(([t1, t2]) => out.push(mk(t2, t1, "League (Leg 2)")));
+    });
+  } else if (fmt === "knockout") {
+    const sh = [...teams].sort(() => Math.random() - 0.5);
+    const rounds = Math.ceil(Math.log2(sh.length));
+    let rt = [...sh];
+    const rNames = ["Final", "Semi Final", "Quarter Final", "Round of 16"];
+    for (let r = 0; r < rounds; r++) {
+      const label = rNames[rounds - 1 - r] || `Round ${r + 1}`;
+      for (let i = 0; i < Math.floor(rt.length / 2); i++)
+        out.push(mk(rt[i * 2] || "TBD", rt[i * 2 + 1] || "TBD", label));
+      rt = Array(Math.ceil(rt.length / 2)).fill("TBD");
+    }
+  } else if (fmt === "top2_final") {
+    leagueFixtures(teams, "League");
+    out.push(mk("1st Place", "2nd Place", "Final"));
+  } else if (fmt === "ipl_playoffs") {
+    leagueFixtures(teams, "League");
+    out.push(mk("1st", "2nd", "Qualifier 1"));
+    out.push(mk("3rd", "4th", "Eliminator"));
+    out.push(mk("Q1 Loser", "Elim Winner", "Qualifier 2"));
+    out.push(mk("Q1 Winner", "Q2 Winner", "Final"));
+  } else if (fmt === "semi_final") {
+    if (teams.length > 4) {
+      leagueFixtures(teams, "League");
+    }
+    const sf = teams.length <= 4;
+    out.push(mk(sf ? teams[0] || "T1" : "1st", sf ? teams[3] || "T4" : "4th", "Semi Final 1"));
+    out.push(mk(sf ? teams[1] || "T2" : "2nd", sf ? teams[2] || "T3" : "3rd", "Semi Final 2"));
+    out.push(mk("SF1 Winner", "SF2 Winner", "Final"));
   }
-  allMatches.forEach(m => {
-    [m.innings1, m.innings2].forEach(inn => {
-      if (!inn) return
-      ;(inn.battingStats||[]).forEach(p => {
-        const pl = get(p.name)
-        pl.runs += p.runs||0; pl.balls += p.balls||0; pl.fours += p.fours||0; pl.sixes += p.sixes||0
-        if ((p.runs||0) >= 50 && (p.runs||0) < 100) pl.fifties++
-        if ((p.runs||0) >= 100) pl.hundreds++
-        if ((p.runs||0) > pl.highScore) pl.highScore = p.runs||0
-        if (p.isOut) pl.timesOut++
-      })
-      ;(inn.bowlingStats||[]).forEach(p => {
-        const pl = get(p.name)
-        const w = p.wickets||0
-        const r = p.runs||0
-        const b = p.balls||0
-        pl.wickets      += w
-        pl.oversBowled  += b
-        pl.runsConceded += r
-        pl.wides        += p.wides||0
-        pl.dotBalls     += p.dotBalls||0
-        if (b > 0) pl.matchesBowled++
-        // best bowling figures: most wickets, then fewest runs
-        if (w > pl.bestWickets || (w === pl.bestWickets && r < pl.bestWicketsRuns)) {
-          pl.bestWickets = w; pl.bestWicketsRuns = r
+  return out;
+}
+
+function calcTable(teams, fixtures, liveMatches) {
+  // liveMatches: array of MongoDB match objects fetched from API
+  const tbl = {};
+  teams.forEach(t => { tbl[t] = { team: t, p: 0, w: 0, l: 0, nr: 0, pts: 0, rf: 0, of: 0, ra: 0, oa: 0 }; });
+  fixtures.forEach(f => {
+    if (f.status !== "completed") return;
+    // Find match by realMatchId (MongoDB _id) or legacy matchId
+    const mid = f.realMatchId || f.matchId;
+    if (!mid) return;
+    const m = liveMatches.find(x => (x._id || x.id) === mid);
+    if (!m || !tbl[f.team1] || !tbl[f.team2]) {
+      // Still count points even without full match data if result stored on fixture
+      if (f.result) {
+        tbl[f.team1].p++; tbl[f.team2].p++;
+        const res = f.result || "";
+        if (res.includes(f.team1 + " won")) { tbl[f.team1].w++; tbl[f.team1].pts += 2; tbl[f.team2].l++; }
+        else if (res.includes(f.team2 + " won")) { tbl[f.team2].w++; tbl[f.team2].pts += 2; tbl[f.team1].l++; }
+        else { tbl[f.team1].pts++; tbl[f.team2].pts++; tbl[f.team1].nr++; tbl[f.team2].nr++; }
+      }
+      return;
+    }
+    tbl[f.team1].p++; tbl[f.team2].p++;
+    const result = m.result || "";
+    if (!result || result.includes("Tied")) {
+      tbl[f.team1].pts++; tbl[f.team2].pts++;
+      tbl[f.team1].nr++; tbl[f.team2].nr++;
+    } else if (result.includes(f.team1 + " won")) {
+      tbl[f.team1].w++; tbl[f.team1].pts += 2; tbl[f.team2].l++;
+    } else if (result.includes(f.team2 + " won")) {
+      tbl[f.team2].w++; tbl[f.team2].pts += 2; tbl[f.team1].l++;
+    }
+    const maxB = (m.overs || 10) * 6;
+    ["innings1", "innings2"].forEach(k => {
+      const inn = m[k]; if (!inn) return;
+      const team = inn.battingTeam;
+      if (!tbl[team]) return;
+      tbl[team].rf += inn.runs || 0; tbl[team].of += (inn.balls || maxB) / 6;
+      const opp = k === "innings1" ? m.innings2 : m.innings1;
+      if (opp) { tbl[team].ra += opp.runs || 0; tbl[team].oa += (opp.balls || maxB) / 6; }
+    });
+  });
+  return Object.values(tbl).map(r => ({
+    ...r, nrr: parseFloat((r.of > 0 && r.oa > 0 ? (r.rf / r.of) - (r.ra / r.oa) : 0).toFixed(3))
+  })).sort((a, b) => b.pts - a.pts || b.nrr - a.nrr);
+}
+
+// ─── Persist ──────────────────────────────────────────────────────────────────
+const SK = "cw_t_v3";
+function load() { try { const s = sessionStorage.getItem(SK); return s ? JSON.parse(s) : null; } catch { return null; } }
+function persist(s) { try { sessionStorage.setItem(SK, JSON.stringify(s)); } catch {} }
+
+// ─── UI primitives ────────────────────────────────────────────────────────────
+function Pill({ label, color = T.accent }) {
+  return <span style={{ background: color + "18", color, border: `1px solid ${color}33`, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700, letterSpacing: 0.6, whiteSpace: "nowrap" }}>{label}</span>;
+}
+
+function Btn({ children, onClick, v = "primary", sm, disabled, full, style: sx = {} }) {
+  const base = { border: "none", borderRadius: 8, fontFamily: "inherit", fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer", transition: "all 0.15s", opacity: disabled ? 0.45 : 1, letterSpacing: 0.3, padding: sm ? "6px 14px" : "10px 22px", fontSize: sm ? 12 : 13, width: full ? "100%" : "auto" };
+  const vs = {
+    primary: { background: `linear-gradient(135deg,${T.accent},#c53030)`, color: "#fff", boxShadow: `0 4px 16px ${T.accentGlow}` },
+    ghost: { background: "transparent", color: T.textMid, border: `1px solid ${T.border}` },
+    danger: { background: T.redDim, color: "#fca5a5", border: `1px solid ${T.red}44` },
+    gold: { background: `linear-gradient(135deg,${T.gold},#d97706)`, color: "#000", boxShadow: `0 4px 16px ${T.gold}30` },
+    subtle: { background: T.surface, color: T.textMid, border: `1px solid ${T.border}` },
+    red: { background: `linear-gradient(135deg,${T.accent},#c53030)`, color: "#fff", boxShadow: `0 4px 16px ${T.accentGlow}` },
+  };
+  return <button onClick={onClick} disabled={disabled} style={{ ...base, ...(vs[v] || vs.primary), ...sx }}>{children}</button>;
+}
+
+function Field({ label, value, onChange, placeholder, type = "text", sm }) {
+  const [focus, setFocus] = useState(false);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+      {label && <label style={{ fontSize: 10, color: T.textDim, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase" }}>{label}</label>}
+      <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        onFocus={() => setFocus(true)} onBlur={() => setFocus(false)}
+        style={{ background: T.bg, border: `1px solid ${focus ? T.accent : T.border}`, borderRadius: 8, color: T.text, padding: sm ? "6px 10px" : "9px 13px", fontSize: 13, outline: "none", fontFamily: "inherit", transition: "border 0.2s", boxShadow: focus ? `0 0 0 3px ${T.accentGlow}` : "none" }} />
+    </div>
+  );
+}
+
+function Sel({ label, value, onChange, options }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+      {label && <label style={{ fontSize: 10, color: T.textDim, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase" }}>{label}</label>}
+      <select value={value} onChange={e => onChange(e.target.value)} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, padding: "9px 13px", fontSize: 13, outline: "none", fontFamily: "inherit" }}>
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function Card({ children, style: sx = {}, glow, hover }) {
+  const [h, setH] = useState(false);
+  return <div onMouseEnter={() => hover && setH(true)} onMouseLeave={() => hover && setH(false)}
+    style={{ background: T.card, border: `1px solid ${glow ? T.accent + "55" : h ? T.borderHover : T.border}`, borderRadius: 12, padding: "18px 20px", boxShadow: glow ? `0 0 24px ${T.accentGlow}` : "none", transition: "border 0.18s", ...sx }}>{children}</div>;
+}
+
+function SH({ title, sub, action }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+      <div><div style={{ color: T.text, fontWeight: 800, fontSize: 15 }}>{title}</div>{sub && <div style={{ color: T.textDim, fontSize: 12, marginTop: 3 }}>{sub}</div>}</div>
+      {action}
+    </div>
+  );
+}
+
+function stagePill(stage) {
+  if (!stage) return null;
+  const s = stage.toLowerCase();
+  const color = s.includes("final") && !s.includes("semi") && !s.includes("quali") ? T.gold
+    : s.includes("semi") || s.includes("qualifier") || s.includes("elim") ? T.purple
+    : T.accent;
+  return <Pill label={stage} color={color} />;
+}
+
+// ─── REDUCER ──────────────────────────────────────────────────────────────────
+const INIT = { tournaments: [], activeTid: null, view: "home", activeFid: null, activeMid: null };
+
+function reducer(state, action) {
+  const upT = (tid, fn) => ({ ...state, tournaments: state.tournaments.map(t => t.id === tid ? fn(t) : t) });
+
+  switch (action.type) {
+    case "CREATE_T": {
+      const t = { id: uid(), name: action.name, format: "round_robin", defaultOvers: 10, wideRuns: 1, noBallRuns: 1, teamCount: 2, teams: ["", ""], fixtures: [], matches: [], createdAt: Date.now() };
+      return { ...state, tournaments: [...state.tournaments, t], activeTid: t.id, view: "setup" };
+    }
+    case "OPEN_T": return { ...state, activeTid: action.id, view: "fixtures" };
+    case "SET_VIEW": return { ...state, view: action.view };
+    case "SET_COUNT": return upT(action.tid, t => {
+      const c = Math.max(2, Math.min(16, action.c));
+      return { ...t, teamCount: c, teams: Array.from({ length: c }, (_, i) => t.teams[i] || "") };
+    });
+    case "SET_NAME": return upT(action.tid, t => { const teams = [...t.teams]; teams[action.i] = action.v; return { ...t, teams }; });
+    case "SAVE_SETTINGS": return upT(action.tid, t => ({ ...t, format: action.fmt, defaultOvers: action.overs, wideRuns: action.wide, noBallRuns: action.nb }));
+    case "GEN": return upT(action.tid, t => {
+      const valid = (t.teams || []).filter(x => x.trim());
+      return { ...t, fixtures: makeFixtures(valid, t.format) };
+    });
+    case "ADD_FIX": return upT(action.tid, t => ({
+      ...t, fixtures: [...(t.fixtures || []), { id: uid(), team1: action.t1, team2: action.t2, stage: action.stage, status: "scheduled", matchNo: (t.fixtures?.length || 0) + 1, date: "", time: "", overs: null }]
+    }));
+    case "UPD_FIX": return upT(action.tid, t => ({ ...t, fixtures: t.fixtures.map(f => f.id === action.fid ? { ...f, date: action.date, time: action.time, overs: action.overs } : f) }));
+    case "DEL_FIX": return upT(action.tid, t => ({ ...t, fixtures: t.fixtures.filter(f => f.id !== action.fid) }));
+    case "SET_FIXTURE_MATCH": {
+      // Links a real MongoDB match ID to a fixture after API creation
+      return upT(action.tid, t => ({
+        ...t,
+        fixtures: t.fixtures.map(fx =>
+          fx.id === action.fid
+            ? { ...fx, status: "live", realMatchId: action.matchId, overs: action.overs }
+            : fx
+        )
+      }));
+    }
+
+    case "MARK_FIXTURE_COMPLETE": {
+      return upT(action.tid, t => ({
+        ...t,
+        fixtures: t.fixtures.map(fx =>
+          fx.realMatchId === action.matchId
+            ? { ...fx, status: "completed", result: action.result }
+            : fx
+        )
+      }));
+    }
+
+    case "START_MATCH": return { ...state, activeFid: action.fid, view: "matchSetup" };
+    case "RESUME": return { ...state, activeFid: action.fid, activeMid: action.mid, view: "scoring" };
+
+    case "CONFIRM_START": {
+      const t = state.tournaments.find(x => x.id === action.tid);
+      const f = t.fixtures.find(x => x.id === action.fid);
+      const bat2 = action.batFirst === f.team1 ? f.team2 : f.team1;
+      const m = {
+        id: uid(), fixtureId: f.id, team1: f.team1, team2: f.team2, t1p: action.t1p, t2p: action.t2p,
+        overs: action.overs, toss: action.toss, batFirst: action.batFirst, status: "innings1", result: "", winner: "",
+        innings1: { battingTeam: action.batFirst, runs: 0, wickets: 0, balls: 0, ballByBall: [], bat: [], bowl: [] },
+        innings2: { battingTeam: bat2, runs: 0, wickets: 0, balls: 0, ballByBall: [], bat: [], bowl: [] },
+        wideRuns: t.wideRuns ?? 1, noBallRuns: t.noBallRuns ?? 1,
+        striker: "", nonStriker: "", bowler: "",
+      };
+      const newTs = state.tournaments.map(t2 => {
+        if (t2.id !== action.tid) return t2;
+        return { ...t2, matches: [...(t2.matches || []), m], fixtures: t2.fixtures.map(fx => fx.id === f.id ? { ...fx, status: "live", matchId: m.id, overs: action.overs, t1p: action.t1p, t2p: action.t2p } : fx) };
+      });
+      return { ...state, tournaments: newTs, activeMid: m.id, view: "scoring" };
+    }
+
+    case "ADD_BALL": {
+      const newTs = state.tournaments.map(t => {
+        if (t.id !== action.tid) return t;
+        const mi = t.matches.findIndex(m => m.id === action.mid);
+        if (mi === -1) return t;
+        let m = { ...t.matches[mi] };
+        const ik = m.status === "innings1" ? "innings1" : "innings2";
+        let inn = { ...m[ik], bat: [...m[ik].bat], bowl: [...m[ik].bowl], ballByBall: [...m[ik].ballByBall] };
+        const b = action.ball;
+        const extra = b.isWide ? (m.wideRuns || 1) : b.isNoBall ? (m.noBallRuns || 1) : 0;
+        const tot = b.runs + extra;
+
+        inn.ballByBall.push({ ...b, totalRuns: tot });
+        inn.runs += tot;
+        if (!b.isWide && !b.isNoBall) inn.balls++;
+        if (b.isWicket) inn.wickets++;
+
+        let bi = inn.bat.findIndex(p => p.name === b.bat);
+        if (bi === -1) { inn.bat.push({ name: b.bat, runs: 0, balls: 0, fours: 0, sixes: 0, out: false }); bi = inn.bat.length - 1; }
+        else inn.bat[bi] = { ...inn.bat[bi] };
+        if (!b.isWide) { inn.bat[bi].runs += b.runs; inn.bat[bi].balls++; if (b.runs === 4) inn.bat[bi].fours++; if (b.runs === 6) inn.bat[bi].sixes++; }
+        if (b.isWicket) inn.bat[bi].out = true;
+
+        let bwi = inn.bowl.findIndex(p => p.name === b.bowl);
+        if (bwi === -1) { inn.bowl.push({ name: b.bowl, balls: 0, runs: 0, wkts: 0, wides: 0, nb: 0 }); bwi = inn.bowl.length - 1; }
+        else inn.bowl[bwi] = { ...inn.bowl[bwi] };
+        inn.bowl[bwi].runs += tot;
+        if (b.isWide) inn.bowl[bwi].wides++;
+        else if (b.isNoBall) inn.bowl[bwi].nb++;
+        else inn.bowl[bwi].balls++;
+        if (b.isWicket) inn.bowl[bwi].wkts++;
+
+        m[ik] = inn;
+        m.striker = action.striker;
+        m.nonStriker = action.nonStriker;
+        m.bowler = b.bowl;
+        if (!b.isWide && !b.isNoBall && inn.balls % 6 === 0 && inn.balls > 0) { m.striker = action.nonStriker; m.nonStriker = action.striker; }
+
+        const maxB = m.overs * 6;
+        if (inn.balls >= maxB || inn.wickets >= 10) {
+          if (m.status === "innings1") { m.status = "innings2"; m.striker = ""; m.nonStriker = ""; m.bowler = ""; }
+          else {
+            m.status = "completed";
+            const i2 = m.innings2, i1 = m.innings1;
+            if (i2.runs > i1.runs) { m.winner = i2.battingTeam; m.result = `${i2.battingTeam} won by ${10 - i2.wickets} wickets`; }
+            else if (i1.runs > i2.runs) { m.winner = i1.battingTeam; m.result = `${i1.battingTeam} won by ${i1.runs - i2.runs} runs`; }
+            else { m.result = "Match Tied"; m.winner = ""; }
+          }
         }
-        if (w >= 5) pl.fiveWickets++
-      })
-    })
-  })
-  return Object.values(players).map(p => ({
-    ...p,
-    // batting derived
-    avg:      p.timesOut > 0 ? (p.runs/p.timesOut).toFixed(1) : p.runs > 0 ? `${p.runs}*` : '0',
-    sr:       p.balls > 0 ? (p.runs/p.balls*100).toFixed(1) : '0',
-    // bowling derived
-    eco:      p.oversBowled > 0 ? (p.runsConceded/(p.oversBowled/6)).toFixed(2) : '0',
-    bowlAvg:  p.wickets > 0 ? (p.runsConceded/p.wickets).toFixed(1) : '—',
-    bowlSR:   p.wickets > 0 ? (p.oversBowled/p.wickets).toFixed(1) : '—',   // balls per wicket
-    bestFig:  p.bestWickets > 0 ? `${p.bestWickets}/${p.bestWicketsRuns}` : '0/0',
-    overs:    fmt(p.oversBowled),
-  }))
-}
-
-// ── Sub-components ────────────────────────────────────────────────────────────
-const Chip = ({ label, active, onClick }) => (
-  <button onClick={onClick} style={{
-    padding:'7px 16px', borderRadius:20, border:'none', cursor:'pointer', fontSize:12, fontWeight:800,
-    background: active ? 'linear-gradient(135deg,#cc0000,#ff4444)' : 'var(--header)',
-    color: active ? 'var(--text)' : 'var(--subtext)',
-    boxShadow: active ? '0 2px 10px rgba(204,0,0,0.3)' : 'none',
-    transition:'all 0.15s', flexShrink:0
-  }}>{label}</button>
-)
-
-const Card = ({ children, style }) => (
-  <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:14, overflow:'hidden', ...style }}>{children}</div>
-)
-
-const SectionTitle = ({ children }) => (
-  <div style={{ fontSize:11, color:'var(--subtext)', fontWeight:800, letterSpacing:1.5, padding:'14px 16px 8px' }}>{children}</div>
-)
-
-const Input = ({ label, ...props }) => (
-  <div style={{ marginBottom:14 }}>
-    {label && <div style={{ fontSize:11, color:'var(--subtext)', fontWeight:800, letterSpacing:1, marginBottom:6 }}>{label}</div>}
-    <input {...props} style={{ width:'100%', background:'var(--surface)', border:'1px solid #2a2a2a', borderRadius:10, padding:'11px 14px', color:'var(--text)', fontSize:14, outline:'none', boxSizing:'border-box', ...props.style }} />
-  </div>
-)
-
-function ImageUpload({ current, onUpload, label, size=56 }) {
-  const ref = useRef()
-  const [loading, setLoading] = useState(false)
-  const handleFile = async e => {
-    const file = e.target.files[0]; if (!file) return
-    setLoading(true)
-    try {
-      const fd = new FormData(); fd.append('image', file)
-      const { data } = await axios.post(`${API}/upload`, fd, { headers: { ...headers(), 'Content-Type':'multipart/form-data' } })
-      onUpload(data.url)
-    } catch { alert('Upload failed') }
-    setLoading(false)
-  }
-  return (
-    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
-      <div onClick={() => ref.current.click()} style={{ width:size, height:size, borderRadius:size/2, background:'var(--surface)', border:'2px dashed #333', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', overflow:'hidden', flexShrink:0, position:'relative' }}>
-        {current ? <img src={current} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}/> : <span style={{ fontSize:size/3, color:'var(--muted)' }}>📷</span>}
-        {loading && <div style={{ position:'absolute', inset:0, background:'var(--shadow)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, color:'var(--text)' }}>...</div>}
-      </div>
-      <input ref={ref} type="file" accept="image/*" style={{ display:'none' }} onChange={handleFile} />
-      {label && <div style={{ fontSize:10, color:'var(--subtext)', fontWeight:700 }}>{label}</div>}
-    </div>
-  )
-}
-
-// ── TOURNAMENT LIST ───────────────────────────────────────────────────────────
-function TournamentList({ onOpen, autoCreate, onAutoCreateDone }) {
-  const [tournaments, setTournaments] = useState([])
-  const [loading, setLoading]         = useState(true)
-  const [creating, setCreating]       = useState(false)
-  const [form, setForm]               = useState({ name:'' })
-
-  useEffect(() => {
-    axios.get(API, { headers: headers() }).then(r => setTournaments(r.data)).catch(console.error).finally(() => setLoading(false))
-  }, [])
-
-  // Auto-open create form when coming from "New Tournament" button
-  useEffect(() => {
-    if (autoCreate && !loading) {
-      setCreating(true)
-      onAutoCreateDone?.()
+        const nm = [...t.matches]; nm[mi] = m;
+        const nf = t.fixtures.map(f2 => {
+          if (f2.id !== m.fixtureId) return f2;
+          return m.status === "completed" ? { ...f2, status: "completed", result: m.result, matchId: m.id } : { ...f2, matchId: m.id };
+        });
+        return { ...t, matches: nm, fixtures: nf };
+      });
+      return { ...state, tournaments: newTs };
     }
-  }, [autoCreate, loading])
 
-  const handleCreate = async () => {
-    if (!form.name.trim()) return
-    try {
-      const { data } = await axios.post(API, { name:form.name.trim() }, { headers: headers() })
-      setTournaments(t => [data, ...t])
-      setCreating(false)
-      setForm({ name:'' })
-      onOpen(data._id)
-    } catch { alert('Failed to create') }
+    case "UNDO": {
+      const newTs = state.tournaments.map(t => {
+        if (t.id !== action.tid) return t;
+        const mi = t.matches.findIndex(m => m.id === action.mid);
+        if (mi === -1) return t;
+        let m = { ...t.matches[mi] };
+        const ik = m.status === "innings1" ? "innings1" : "innings2";
+        let inn = { ...m[ik], bat: [...m[ik].bat], bowl: [...m[ik].bowl], ballByBall: [...m[ik].ballByBall] };
+        if (!inn.ballByBall.length) return t;
+        const lb = inn.ballByBall.pop();
+        inn.runs -= lb.totalRuns;
+        if (!lb.isWide && !lb.isNoBall) inn.balls--;
+        if (lb.isWicket) inn.wickets--;
+        inn.bat = inn.bat.map(p => { if (p.name !== lb.bat) return p; const np = { ...p }; if (!lb.isWide) { np.runs -= lb.runs; np.balls--; if (lb.runs === 4) np.fours--; if (lb.runs === 6) np.sixes--; } if (lb.isWicket) np.out = false; return np; });
+        inn.bowl = inn.bowl.map(p => { if (p.name !== lb.bowl) return p; const np = { ...p }; np.runs -= lb.totalRuns; if (lb.isWide) np.wides--; else if (lb.isNoBall) np.nb--; else np.balls--; if (lb.isWicket) np.wkts--; return np; });
+        m[ik] = inn;
+        const nm = [...t.matches]; nm[mi] = m;
+        return { ...t, matches: nm };
+      });
+      return { ...state, tournaments: newTs };
+    }
+
+    case "UPD_OVERS": {
+      return upT(action.tid, t => ({ ...t, matches: t.matches.map(m => m.id === action.mid ? { ...m, overs: action.overs } : m) }));
+    }
+
+    default: return state;
   }
-
-  const handleDelete = async (e, id) => {
-    e.stopPropagation()
-    if (!window.confirm('Delete tournament?')) return
-    await axios.delete(`${API}/${id}`, { headers: headers() })
-    setTournaments(t => t.filter(x => x._id !== id))
-  }
-
-  const statusColor = { setup:'#fb923c', league:'#4ade80', playoffs:'#c084fc', completed:'var(--subtext)' }
-
-  return (
-    <div style={{ padding:'12px 12px 80px' }}>
-      {/* create form */}
-      {creating && (
-        <Card style={{ padding:16, marginBottom:14, border:'1px solid rgba(255,68,68,0.2)' }}>
-          <div style={{ fontSize:14, fontWeight:800, color:'var(--text)', marginBottom:14 }}>New Tournament</div>
-          <Input label="TOURNAMENT NAME" value={form.name} onChange={e => setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. CrickyWorld T10 League" />
-          <div style={{ display:'flex', gap:8, marginTop:4 }}>
-            <button onClick={() => setCreating(false)} style={{ flex:1, padding:'12px', borderRadius:10, background:'var(--header)', border:'1px solid #2a2a2a', color:'var(--subtext)', fontWeight:800, fontSize:13, cursor:'pointer' }}>Cancel</button>
-            <button onClick={handleCreate} disabled={!form.name.trim()} style={{ flex:2, padding:'12px', borderRadius:10, background:'linear-gradient(135deg,var(--accent2),var(--accent))', border:'none', color:'var(--text)', fontWeight:800, fontSize:13, cursor:'pointer' }}>Create Tournament</button>
-          </div>
-        </Card>
-      )}
-
-      {loading ? (
-        <div style={{ textAlign:'center', padding:40, color:'var(--subtext)' }}>Loading...</div>
-      ) : tournaments.length === 0 && !creating ? (
-        <div style={{ textAlign:'center', padding:'60px 20px', color:'var(--muted)' }}>
-          <div style={{ fontSize:48, marginBottom:12 }}>🏆</div>
-          <div style={{ fontSize:16, color:'var(--subtext)', fontWeight:700 }}>No tournaments yet</div>
-          <div style={{ fontSize:13, color:'var(--muted)', marginTop:4 }}>Tap + to create one</div>
-        </div>
-      ) : (
-        tournaments.map(t => (
-          <div key={t._id} onClick={() => onOpen(t._id)} style={{ position:'relative', marginBottom:10, cursor:'pointer' }}>
-            <Card style={{ padding:'14px 16px' }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'start' }}>
-                <div>
-                  <div style={{ fontSize:16, fontWeight:800, color:'var(--text)', marginBottom:4 }}>{t.name}</div>
-                  <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                    <span style={{ fontSize:10, fontWeight:800, color: statusColor[t.status]||'var(--text2)', background: statusColor[t.status]+'22'||'var(--header)', padding:'2px 8px', borderRadius:10 }}>{t.status.toUpperCase()}</span>
-                    <span style={{ fontSize:12, color:'var(--subtext)' }}>{t.teams?.length||0} teams</span>
-                  </div>
-                </div>
-                <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-                  <div style={{ textAlign:'right' }}>
-                    <div style={{ fontFamily:'Rajdhani,sans-serif', fontSize:20, fontWeight:700, color:'var(--text)' }}>{t.fixtures?.filter(f=>f.status==='completed').length||0}</div>
-                    <div style={{ fontSize:10, color:'var(--subtext)' }}>matches done</div>
-                  </div>
-                  <button onClick={e=>handleDelete(e,t._id)} style={{ width:28, height:28, borderRadius:7, background:'rgba(255,68,68,0.1)', border:'1px solid rgba(255,68,68,0.2)', color:'var(--accent)', fontSize:13, cursor:'pointer' }}>✕</button>
-                </div>
-              </div>
-            </Card>
-          </div>
-        ))
-      )}
-
-      {/* FAB */}
-      {!creating && (
-        <button onClick={() => setCreating(true)} style={{ position:'fixed', bottom:80, right:20, width:52, height:52, borderRadius:'50%', background:'linear-gradient(135deg,var(--accent2),var(--accent))', border:'none', color:'var(--text)', fontSize:24, cursor:'pointer', boxShadow:'0 4px 20px rgba(204,0,0,0.5)', zIndex:100 }}>+</button>
-      )}
-    </div>
-  )
 }
 
-// ── TOURNAMENT DETAIL ─────────────────────────────────────────────────────────
-function TournamentDetail({ id, onBack }) {
-  const navigate = useNavigate()
-  const [t, setT]         = useState(null)
-  const [tab, setTab]     = useState('overview')
-  const [matches, setMatches] = useState([])
-  const [loading, setLoading] = useState(true)
+// ─── HOME ─────────────────────────────────────────────────────────────────────
+function Home({ state, dispatch }) {
+  const [name, setName] = useState("");
+  return (
+    <div style={{ maxWidth: 680, margin: "0 auto", padding: "44px 20px" }}>
+      {/* Hero */}
+      <div style={{ textAlign: "center", marginBottom: 40 }}>
+        <div style={{ width: 72, height: 72, borderRadius: "50%", background: `radial-gradient(circle,${T.accent}33,transparent)`, border: `2px solid ${T.accent}44`, margin: "0 auto 16px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34 }}>🏆</div>
+        <h1 style={{ margin: 0, color: T.text, fontSize: 26, fontWeight: 900, letterSpacing: -0.5 }}>Tournaments</h1>
+        <p style={{ color: T.textDim, marginTop: 6, fontSize: 13 }}>Create and manage cricket tournaments with live scoring</p>
+      </div>
 
-  const refresh = () =>
-    axios.get(`${API}/${id}`, { headers:headers() }).then(r => setT(r.data)).catch(console.error)
+      {/* New Tournament */}
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: "20px", marginBottom: 24 }}>
+        <div style={{ color: T.accent, fontWeight: 800, fontSize: 10, letterSpacing: 2, marginBottom: 14, textTransform: "uppercase" }}>New Tournament</div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}><Field placeholder="e.g. Office Cup 2025, IPL Season 2…" value={name} onChange={setName} /></div>
+          <Btn onClick={() => { if (name.trim()) { dispatch({ type: "CREATE_T", name: name.trim() }); setName(""); } }} disabled={!name.trim()} style={{ alignSelf: "flex-end" }}>Create →</Btn>
+        </div>
+      </div>
 
-  useEffect(() => {
-    refresh().finally(() => setLoading(false))
-  }, [id])
+      {/* Existing tournaments */}
+      {state.tournaments.length > 0 && (
+        <>
+          <div style={{ color: T.textDim, fontSize: 10, fontWeight: 800, letterSpacing: 2, marginBottom: 10 }}>YOUR TOURNAMENTS</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {[...state.tournaments].reverse().map(t => {
+              const done = (t.fixtures || []).filter(f => f.status === "completed").length;
+              const live = (t.fixtures || []).filter(f => f.status === "live").length;
+              const total = (t.fixtures || []).length;
+              const fmt = FORMATS.find(f => f.key === t.format);
+              return (
+                <div key={t.id} onClick={() => dispatch({ type: "OPEN_T", id: t.id })}
+                  style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 18px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", transition: "all 0.15s" }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent + "55"; e.currentTarget.style.background = T.cardHover; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.card; }}>
+                  <div>
+                    <div style={{ color: T.text, fontWeight: 700, fontSize: 14 }}>{t.name}</div>
+                    <div style={{ color: T.textDim, fontSize: 12, marginTop: 3, display: "flex", gap: 12 }}>
+                      <span>{(t.teams || []).filter(x => x).length} teams</span>
+                      <span>{done}/{total} played</span>
+                      {live > 0 && <span style={{ color: T.accent }}>● {live} live</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    {fmt && <Pill label={fmt.label} color={T.accent} />}
+                    <span style={{ color: T.textDim, fontSize: 18 }}>›</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
-  // listen for tab-switch events from child tabs (e.g. Overview → Playoffs)
-  useEffect(() => {
-    const handler = e => setTab(e.detail)
-    window.addEventListener('switchTab', handler)
-    return () => window.removeEventListener('switchTab', handler)
-  }, [])
+// ─── SETUP ────────────────────────────────────────────────────────────────────
+function Setup({ t, dispatch }) {
+  const [fmt, setFmt] = useState(t.format || "round_robin");
+  const [overs, setOvers] = useState(String(t.defaultOvers || 10));
+  const [wide, setWide] = useState(String(t.wideRuns ?? 1));
+  const [nb, setNb] = useState(String(t.noBallRuns ?? 1));
+  const [count, setCount] = useState(String(t.teamCount || 2));
+  const [saved, setSaved] = useState(false);
 
-  // load matches for stats
-  useEffect(() => {
-    if (!t) return
-    const ids = t.fixtures.filter(f=>f.matchId).map(f=>f.matchId)
-    Promise.all(ids.map(mid => axios.get(`/api/matches/${mid}`, { headers:headers() }).then(r=>r.data).catch(()=>null)))
-      .then(ms => setMatches(ms.filter(Boolean)))
-  }, [t?.fixtures?.length])
+  const curFmt = FORMATS.find(f => f.key === fmt);
+  const valid = (t.teams || []).filter(x => x.trim());
+  const canGen = valid.length >= (curFmt?.minTeams || 2);
 
-  if (loading) return <div style={{ textAlign:'center', padding:40, color:'var(--subtext)' }}>Loading...</div>
-  if (!t) return null
+  const saveSettings = () => {
+    dispatch({ type: "SAVE_SETTINGS", tid: t.id, fmt, overs: parseInt(overs) || 10, wide: parseInt(wide) || 1, nb: parseInt(nb) || 1 });
+    setSaved(true); setTimeout(() => setSaved(false), 1500);
+  };
 
-  const tabs = [
-    { key:'overview', label:'Overview' },
-    { key:'teams',    label:'Teams' },
-    { key:'fixtures', label:'Fixtures' },
-    { key:'points',   label:'Points' },
-    { key:'stats',    label:'Stats' },
-    { key:'results',  label:'Results' },
-    { key:'playoffs', label:'Playoffs' },
-  ]
+  const handleCount = (v) => {
+    setCount(v);
+    const n = parseInt(v);
+    if (n >= 2 && n <= 16) dispatch({ type: "SET_COUNT", tid: t.id, c: n });
+  };
+
+  const gen = () => {
+    dispatch({ type: "SAVE_SETTINGS", tid: t.id, fmt, overs: parseInt(overs) || 10, wide: parseInt(wide) || 1, nb: parseInt(nb) || 1 });
+    dispatch({ type: "GEN", tid: t.id });
+    dispatch({ type: "SET_VIEW", view: "fixtures" });
+  };
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', flex:1, minHeight:0 }}>
-      {/* header */}
-      <div style={{ padding:'12px 16px 0', background:'var(--card)', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
-          <button onClick={onBack} style={{ width:34, height:34, borderRadius:9, background:'var(--border)', border:'1px solid var(--border)', color:'var(--text2)', fontSize:16, cursor:'pointer' }}>←</button>
-          <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:16, fontWeight:800, color:'var(--text)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{t.name}</div>
-            <div style={{ fontSize:11, color:'var(--subtext)' }}>{t.teams.length} teams • {t.overs} ov • {t.status}</div>
-          </div>
-        </div>
-        {/* tab bar */}
-        <div style={{ display:'flex', gap:0, overflowX:'auto', paddingBottom:0 }}>
-          {tabs.map(tb => (
-            <button key={tb.key} onClick={() => setTab(tb.key)} style={{
-              padding:'10px 14px', border:'none', background:'transparent', cursor:'pointer', whiteSpace:'nowrap',
-              fontSize:12, fontWeight:800, color: tab===tb.key ? 'var(--accent)' : 'var(--muted)',
-              borderBottom: tab===tb.key ? '2px solid var(--accent)' : '2px solid transparent',
-              transition:'all 0.15s'
-            }}>{tb.label}</button>
+    <div style={{ maxWidth: 760, margin: "0 auto", padding: "28px 20px" }}>
+      {/* Format */}
+      <div style={{ marginBottom: 24 }}>
+        <SH title="Schedule Format" sub="Choose how your tournament will be structured" />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          {FORMATS.map(f => (
+            <div key={f.key} onClick={() => setFmt(f.key)}
+              style={{ background: fmt === f.key ? T.accentDim : T.card, border: `2px solid ${fmt === f.key ? T.accent : T.border}`, borderRadius: 12, padding: "14px 16px", cursor: "pointer", transition: "all 0.15s" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                <span style={{ fontSize: 18 }}>{f.icon}</span>
+                <span style={{ color: fmt === f.key ? T.accent : T.text, fontWeight: 700, fontSize: 13 }}>{f.label}</span>
+              </div>
+              <div style={{ color: T.textDim, fontSize: 11, lineHeight: 1.4 }}>{f.desc}</div>
+              <div style={{ marginTop: 8 }}><Pill label={`Min ${f.minTeams} teams`} color={T.textDim} /></div>
+            </div>
           ))}
         </div>
       </div>
 
-      {/* tab content */}
-      <div style={{ flex:1, overflowY:'auto', padding:'0 0 80px' }}>
-        {tab === 'overview'  && <OverviewTab  t={t} setT={setT} refresh={refresh} />}
-        {tab === 'teams'     && <TeamsTab     t={t} refresh={refresh} />}
-        {tab === 'fixtures'  && <FixturesTab  t={t} refresh={refresh} navigate={navigate} />}
-        {tab === 'points'    && <PointsTab    t={t} />}
-        {tab === 'stats'     && <StatsTab     t={t} matches={matches} />}
-        {tab === 'results'   && <ResultsTab   t={t} />}
-        {tab === 'playoffs'  && <PlayoffsTab  t={t} refresh={refresh} navigate={navigate} />}
-      </div>
+      {/* Settings */}
+      <Card style={{ marginBottom: 20 }}>
+        <div style={{ color: T.textDim, fontSize: 10, fontWeight: 800, letterSpacing: 1.5, marginBottom: 14 }}>MATCH SETTINGS</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
+          <Field label="Default Overs" type="number" value={overs} onChange={setOvers} />
+          <Field label="Wide Penalty (runs)" type="number" value={wide} onChange={setWide} />
+          <Field label="No-Ball Penalty (runs)" type="number" value={nb} onChange={setNb} />
+        </div>
+        <Btn v={saved ? "subtle" : "ghost"} sm onClick={saveSettings}>{saved ? "✓ Saved" : "Save Settings"}</Btn>
+      </Card>
+
+      {/* Teams */}
+      <Card style={{ marginBottom: 20 }}>
+        <div style={{ color: T.textDim, fontSize: 10, fontWeight: 800, letterSpacing: 1.5, marginBottom: 14 }}>TEAMS</div>
+        <div style={{ marginBottom: 16, maxWidth: 200 }}>
+          <Field label="Number of teams" type="number" value={count} onChange={handleCount} />
+        </div>
+        {(t.teams || []).length > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            {t.teams.map((name, i) => (
+              <Field key={i} label={`Team ${i + 1}`} value={name} onChange={v => dispatch({ type: "SET_NAME", tid: t.id, i, v })} placeholder={`Team ${i + 1} name`} />
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* Generate */}
+      <Card glow={canGen} style={{ background: canGen ? T.accentDim : T.card }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
+          <div>
+            <div style={{ color: canGen ? T.accent : T.textDim, fontWeight: 700, fontSize: 14 }}>
+              {canGen ? `Ready! ${valid.length} teams · ${curFmt?.label}` : `Add at least ${curFmt?.minTeams} teams to generate fixtures`}
+            </div>
+            {canGen && <div style={{ color: T.textDim, fontSize: 12, marginTop: 4 }}>{curFmt?.desc}</div>}
+          </div>
+          <Btn onClick={gen} disabled={!canGen} style={{ flexShrink: 0 }}>⚡ Generate Fixtures →</Btn>
+        </div>
+      </Card>
     </div>
-  )
+  );
 }
 
-// ── OVERVIEW TAB ──────────────────────────────────────────────────────────────
-function OverviewTab({ t, setT, refresh }) {
-  const [editing, setEditing] = useState(false)
-  const [form, setForm]       = useState({ name: t.name })
+// ─── FIXTURES ─────────────────────────────────────────────────────────────────
+function Fixtures({ t, dispatch }) {
+  const navigate = useNavigate();
+  const [editId, setEditId] = useState(null);
+  const [eDate, setEDate] = useState(""); const [eTime, setETime] = useState(""); const [eOvs, setEOvs] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
+  const [aT1, setAT1] = useState(""); const [aT2, setAT2] = useState(""); const [aStage, setAStage] = useState("League");
 
-  const save = async () => {
-    const { data } = await axios.patch(`${API}/${t._id}`, form, { headers:headers() })
-    setT(data); setEditing(false)
-  }
+  const valid = (t.teams || []).filter(x => x.trim());
+  const all = t.fixtures || [];
+  const stages = [...new Set(all.map(f => f.stage))];
+  const ORDER = ["League", "League (Leg 2)", "Round 1", "Round 2", "Quarter Final", "Eliminator", "Semi Final", "Semi Final 1", "Semi Final 2", "Qualifier 1", "Qualifier 2", "Final"];
+  const sorted = [...stages].sort((a, b) => { const ia = ORDER.findIndex(s => a.includes(s)), ib = ORDER.findIndex(s => b.includes(s)); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); });
 
-  const genFixtures = async () => {
-    if (!window.confirm('This will replace all league fixtures. Continue?')) return
-    try {
-      await axios.post(`${API}/${t._id}/generate-fixtures`, {}, { headers:headers() })
-      refresh()
-    } catch (e) { alert(e.response?.data?.message || 'Failed') }
-  }
+  const startEdit = (f) => { setEditId(f.id); setEDate(f.date || ""); setETime(f.time || ""); setEOvs(String(f.overs || t.defaultOvers || 10)); };
+  const saveEdit = (fid) => { dispatch({ type: "UPD_FIX", tid: t.id, fid, date: eDate, time: eTime, overs: parseInt(eOvs) || t.defaultOvers }); setEditId(null); };
 
-  const genPlayoffs = async () => {
-    if (!window.confirm('Generate playoff bracket?')) return
-    try {
-      await axios.post(`${API}/${t._id}/generate-playoffs`, {}, { headers:headers() })
-      refresh()
-    } catch (e) { alert(e.response?.data?.message || 'Failed') }
-  }
-
-  const leagueDone = t.fixtures.filter(f=>f.stage==='league').every(f=>f.status==='completed')
-  const totalLeague = t.fixtures.filter(f=>f.stage==='league').length
-  const doneLeague  = t.fixtures.filter(f=>f.stage==='league'&&f.status==='completed').length
+  const done = all.filter(f => f.status === "completed").length;
+  const live = all.filter(f => f.status === "live").length;
+  const pct = all.length > 0 ? Math.round((done / all.length) * 100) : 0;
 
   return (
-    <div style={{ padding:'12px 12px 0' }}>
-      {/* stats cards */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:14 }}>
-        {[
-          { label:'Teams',    value: t.teams.length,       color:'#60a5fa' },
-          { label:'Matches',  value: totalLeague,           color:'#4ade80' },
-          { label:'Done',     value: doneLeague,            color:'#fb923c' },
-        ].map(s => (
-          <Card key={s.label} style={{ padding:'12px 10px', textAlign:'center' }}>
-            <div style={{ fontFamily:'Rajdhani,sans-serif', fontSize:26, fontWeight:700, color: s.color }}>{s.value}</div>
-            <div style={{ fontSize:10, color:'var(--subtext)', fontWeight:800 }}>{s.label}</div>
+    <div style={{ maxWidth: 760, margin: "0 auto", padding: "24px 16px" }}>
+
+      {/* Stats bar */}
+      {all.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 20 }}>
+          {[
+            ["Total", all.length, T.textMid],
+            ["Played", done, T.accent],
+            ["Live", live, T.gold],
+            ["Left", all.length - done - live, T.textDim],
+          ].map(([l, v, c]) => (
+            <div key={l} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px", textAlign: "center" }}>
+              <div style={{ color: c, fontSize: 22, fontWeight: 900 }}>{v}</div>
+              <div style={{ color: T.textDim, fontSize: 10, fontWeight: 700, letterSpacing: 1, marginTop: 2 }}>{l.toUpperCase()}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Progress bar */}
+      {all.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+            <span style={{ color: T.textDim, fontSize: 11 }}>Tournament Progress</span>
+            <span style={{ color: T.accent, fontSize: 11, fontWeight: 700 }}>{pct}%</span>
+          </div>
+          <div style={{ height: 4, background: T.border, borderRadius: 4 }}>
+            <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg,${T.accent},${T.accentBright})`, borderRadius: 4, transition: "width 0.5s" }} />
+          </div>
+        </div>
+      )}
+
+      {/* Header actions */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div>
+          <div style={{ color: T.text, fontWeight: 800, fontSize: 15 }}>📅 Match Schedule</div>
+          <div style={{ color: T.textDim, fontSize: 12, marginTop: 2 }}>
+            {all.length === 0 ? "No fixtures yet — generate from Setup" : `${all.length} matches · ${valid.length} teams`}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {valid.length >= 2 && (
+            <Btn sm v="ghost" onClick={() => { if (window.confirm("Regenerate all fixtures? Live/completed matches will be cleared.")) dispatch({ type: "GEN", tid: t.id }); }}>↺ Regenerate</Btn>
+          )}
+          <Btn sm v="subtle" onClick={() => setAddOpen(v => !v)}>+ Add</Btn>
+        </div>
+      </div>
+
+      {/* Add match panel */}
+      {addOpen && (
+        <div style={{ background: T.card, border: `1px solid ${T.accent}44`, borderRadius: 12, padding: "16px", marginBottom: 16 }}>
+          <div style={{ color: T.accent, fontSize: 10, fontWeight: 800, letterSpacing: 2, marginBottom: 12 }}>ADD CUSTOM MATCH</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <Field label="Team 1" value={aT1} onChange={setAT1} placeholder="Team name" />
+            <Field label="Team 2" value={aT2} onChange={setAT2} placeholder="Team name" />
+            <Field label="Stage" value={aStage} onChange={setAStage} placeholder="e.g. Final" />
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn sm onClick={() => { if (aT1 && aT2 && aT1 !== aT2) { dispatch({ type: "ADD_FIX", tid: t.id, t1: aT1, t2: aT2, stage: aStage }); setAddOpen(false); setAT1(""); setAT2(""); } }} disabled={!aT1 || !aT2 || aT1 === aT2}>Add Match</Btn>
+            <Btn sm v="ghost" onClick={() => setAddOpen(false)}>Cancel</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {all.length === 0 && (
+        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: "52px 20px", textAlign: "center" }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
+          <div style={{ color: T.textMid, fontSize: 15, fontWeight: 700, marginBottom: 6 }}>No fixtures generated yet</div>
+          <div style={{ color: T.textDim, fontSize: 13, marginBottom: 20 }}>Go to Setup to configure teams and generate your match schedule</div>
+          <Btn sm onClick={() => dispatch({ type: "SET_VIEW", view: "setup" })}>← Go to Setup</Btn>
+        </div>
+      )}
+
+      {/* Fixtures by stage */}
+      {sorted.map(stage => {
+        const stageFix = all.filter(f => f.stage === stage);
+        const sdone = stageFix.filter(f => f.status === "completed").length;
+        return (
+          <div key={stage} style={{ marginBottom: 28 }}>
+            {/* Stage header */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
+              {stagePill(stage)}
+              <span style={{ color: T.textDim, fontSize: 11 }}>{sdone}/{stageFix.length} played</span>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {stageFix.map((f, idx) => (
+                <div key={f.id} style={{
+                  background: T.card,
+                  border: `1px solid ${f.status === "live" ? T.gold + "55" : f.status === "completed" ? T.accent + "22" : T.border}`,
+                  borderRadius: 10,
+                  overflow: "hidden",
+                  transition: "border 0.15s",
+                }}>
+                  {/* Left accent bar */}
+                  <div style={{ display: "flex" }}>
+                    <div style={{ width: 3, background: f.status === "live" ? T.gold : f.status === "completed" ? T.accent : T.border, flexShrink: 0 }} />
+                    <div style={{ flex: 1, padding: "12px 14px" }}>
+                      {editId === f.id ? (
+                        // Edit mode
+                        <div>
+                          <div style={{ color: T.accent, fontSize: 10, fontWeight: 800, letterSpacing: 1.5, marginBottom: 10 }}>EDIT MATCH #{f.matchNo}</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                            <Field sm label="Date" value={eDate} onChange={setEDate} placeholder="e.g. 15 Mar" />
+                            <Field sm label="Time" value={eTime} onChange={setETime} placeholder="e.g. 6:00 PM" />
+                            <Field sm label="Overs" type="number" value={eOvs} onChange={setEOvs} />
+                          </div>
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <Btn sm onClick={() => saveEdit(f.id)}>✓ Save</Btn>
+                            <Btn sm v="ghost" onClick={() => setEditId(null)}>Cancel</Btn>
+                          </div>
+                        </div>
+                      ) : (
+                        // View mode
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            {/* Match number */}
+                            <div style={{ color: T.textDim, fontSize: 10, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>MATCH {f.matchNo}</div>
+
+                            {/* Teams */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                              <span style={{ color: T.text, fontWeight: 800, fontSize: 15 }}>{f.team1}</span>
+                              <span style={{ color: T.textDim, fontSize: 11, background: T.surface, borderRadius: 4, padding: "1px 6px", fontWeight: 700 }}>VS</span>
+                              <span style={{ color: T.text, fontWeight: 800, fontSize: 15 }}>{f.team2}</span>
+                            </div>
+
+                            {/* Meta info */}
+                            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                              {f.date && <span style={{ color: T.textDim, fontSize: 11 }}>📅 {f.date}{f.time ? ` · ${f.time}` : ""}</span>}
+                              <span style={{ color: T.textDim, fontSize: 11 }}>🎯 {f.overs || t.defaultOvers || 10} overs</span>
+                              {f.status === "completed" && f.result && (
+                                <span style={{ color: T.accent, fontSize: 11, fontWeight: 700 }}>✓ {f.result}</span>
+                              )}
+                              {f.status === "live" && (
+                                <span style={{ color: T.gold, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}>
+                                  <span style={{ width: 6, height: 6, background: T.gold, borderRadius: "50%", display: "inline-block" }} />
+                                  LIVE
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Actions */}
+                          <div style={{ display: "flex", gap: 7, alignItems: "center", flexShrink: 0 }}>
+                            {f.status === "completed" ? (
+                              <div style={{ background: T.accent + "18", color: T.accent, border: `1px solid ${T.accent}33`, borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700 }}>Done ✓</div>
+                            ) : f.status === "live" && f.realMatchId ? (
+                              <Btn sm v="gold" onClick={() => navigate(`/scoring/${f.realMatchId}`)}>▶ Resume</Btn>
+                            ) : (
+                              <>
+                                <button onClick={() => startEdit(f)}
+                                  style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 7, color: T.textMid, cursor: "pointer", padding: "5px 10px", fontSize: 12, fontFamily: "inherit", fontWeight: 600 }}>✎</button>
+                                <button onClick={() => dispatch({ type: "DEL_FIX", tid: t.id, fid: f.id })}
+                                  style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 7, color: T.textDim, cursor: "pointer", padding: "5px 9px", fontSize: 12, fontFamily: "inherit" }}>✕</button>
+                                <Btn sm onClick={() => dispatch({ type: "START_MATCH", fid: f.id })}>▶ Start</Btn>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
+function PointsTable({ t, dispatch }) {
+  const [liveMatches, setLiveMatches] = useState([]);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    // Fetch all real match IDs associated with this tournament's fixtures
+    const realIds = (t.fixtures || []).map(f => f.realMatchId).filter(Boolean);
+    if (!realIds.length) return;
+    Promise.all(
+      realIds.map(id =>
+        axios.get(`/api/matches/${id}`, { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => r.data).catch(() => null)
+      )
+    ).then(results => {
+      const valid = results.filter(Boolean);
+      setLiveMatches(valid);
+      // Sync completed fixtures
+      valid.forEach(m => {
+        if (m.status === "completed" && m.result) {
+          dispatch({ type: "MARK_FIXTURE_COMPLETE", tid: t.id, matchId: m._id, result: m.result });
+        }
+      });
+    });
+  }, [t.id]);
+
+  const table = calcTable((t.teams || []).filter(x => x.trim()), t.fixtures || [], liveMatches);
+  return (
+    <div style={{ maxWidth: 760, margin: "0 auto", padding: "28px 20px" }}>
+      <SH title="📊 Points Table" sub="Auto-updates after each completed match" />
+      <Card style={{ padding: "0 4px", overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr>{["#", "Team", "P", "W", "L", "NR", "Pts", "NRR"].map(h => (
+              <th key={h} style={{ padding: "10px 12px", textAlign: h === "Team" ? "left" : "center", color: T.textDim, fontWeight: 700, fontSize: 10, letterSpacing: 1, borderBottom: `1px solid ${T.border}` }}>{h}</th>
+            ))}</tr>
+          </thead>
+          <tbody>
+            {table.length === 0 && <tr><td colSpan={8} style={{ padding: "30px", textAlign: "center", color: T.textDim }}>No completed matches yet</td></tr>}
+            {table.map((r, i) => (
+              <tr key={r.team} style={{ borderTop: `1px solid ${T.border}`, background: i < 2 ? "#0a2118" : "transparent" }}>
+                <td style={{ padding: "10px 12px", textAlign: "center", color: i < 2 ? T.accent : T.textDim, fontWeight: 700 }}>{i + 1}</td>
+                <td style={{ padding: "10px 12px", color: T.text, fontWeight: 700 }}>{i === 0 ? "🥇 " : i === 1 ? "🥈 " : ""}{r.team}</td>
+                <td style={{ padding: "10px 12px", textAlign: "center", color: T.textMid }}>{r.p}</td>
+                <td style={{ padding: "10px 12px", textAlign: "center", color: T.accent, fontWeight: 700 }}>{r.w}</td>
+                <td style={{ padding: "10px 12px", textAlign: "center", color: T.textMid }}>{r.l}</td>
+                <td style={{ padding: "10px 12px", textAlign: "center", color: T.textMid }}>{r.nr}</td>
+                <td style={{ padding: "10px 12px", textAlign: "center", color: T.gold, fontWeight: 900, fontSize: 15 }}>{r.pts}</td>
+                <td style={{ padding: "10px 12px", textAlign: "center", color: r.nrr >= 0 ? T.accent : T.red, fontWeight: 600 }}>{r.nrr >= 0 ? "+" : ""}{r.nrr}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+    </div>
+  );
+}
+
+// ─── STATS ────────────────────────────────────────────────────────────────────
+function TStats({ t }) {
+  const [liveMatches, setLiveMatches] = useState([]);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    const realIds = (t.fixtures || []).map(f => f.realMatchId).filter(Boolean);
+    if (!realIds.length) return;
+    Promise.all(
+      realIds.map(id =>
+        axios.get(`/api/matches/${id}`, { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => r.data).catch(() => null)
+      )
+    ).then(results => setLiveMatches(results.filter(Boolean)));
+  }, [t.id]);
+
+  // Build stats from live API matches (use battingStats/bowlingStats fields from MongoDB)
+  const matches = liveMatches.filter(m => m.status === "completed");
+  const ps = {};
+  matches.forEach(m => {
+    ["innings1", "innings2"].forEach(k => {
+      const inn = m[k]; if (!inn) return;
+      // Support both MongoDB field names (battingStats/bowlingStats) and legacy (bat/bowl)
+      (inn.battingStats || inn.bat || []).forEach(b => {
+        if (!ps[b.name]) ps[b.name] = { name: b.name, ms: new Set(), runs: 0, balls: 0, hs: 0, f4: 0, s6: 0, wkts: 0, wb: 0, wr: 0 };
+        ps[b.name].ms.add(m._id || m.id); ps[b.name].runs += b.runs || 0; ps[b.name].balls += b.balls || 0;
+        if ((b.runs || 0) > ps[b.name].hs) ps[b.name].hs = b.runs || 0;
+        ps[b.name].f4 += b.fours || 0; ps[b.name].s6 += b.sixes || 0;
+      });
+      (inn.bowlingStats || inn.bowl || []).forEach(b => {
+        if (!ps[b.name]) ps[b.name] = { name: b.name, ms: new Set(), runs: 0, balls: 0, hs: 0, f4: 0, s6: 0, wkts: 0, wb: 0, wr: 0 };
+        ps[b.name].ms.add(m._id || m.id);
+        ps[b.name].wkts += b.wickets || b.wkts || 0;
+        ps[b.name].wb += b.balls || 0;
+        ps[b.name].wr += b.runs || 0;
+      });
+    });
+  });
+  const arr = Object.values(ps).map(p => ({ ...p, mc: p.ms.size }));
+  const bats = [...arr].sort((a, b) => b.runs - a.runs).slice(0, 10);
+  const bowls = [...arr].filter(p => p.wkts > 0).sort((a, b) => b.wkts - a.wkts || (a.wr / (a.wb || 1)) - (b.wr / (b.wb || 1))).slice(0, 10);
+
+  return (
+    <div style={{ maxWidth: 760, margin: "0 auto", padding: "28px 20px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 28 }}>
+        {[["Matches Played", matches.length, T.accent], ["Total Sixes 🎆", arr.reduce((s, p) => s + p.s6, 0), T.gold], ["Total Wickets", arr.reduce((s, p) => s + p.wkts, 0), T.purple]].map(([l, v, c]) => (
+          <Card key={l} style={{ textAlign: "center" }}>
+            <div style={{ color: T.textDim, fontSize: 10, fontWeight: 700, letterSpacing: 1.5, marginBottom: 6 }}>{l.toUpperCase()}</div>
+            <div style={{ color: c, fontSize: 28, fontWeight: 900 }}>{v}</div>
           </Card>
         ))}
       </div>
 
-      {/* edit tournament */}
-      <Card style={{ padding:16, marginBottom:12 }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: editing ? 14 : 0 }}>
-          <div style={{ fontSize:13, fontWeight:800, color:'var(--text2)' }}>Tournament Settings</div>
-          <button onClick={() => setEditing(e=>!e)} style={{ padding:'6px 12px', borderRadius:8, background:'var(--border)', border:'1px solid var(--border)', color:'var(--text2)', fontSize:12, fontWeight:700, cursor:'pointer' }}>
-            {editing ? 'Cancel' : 'Edit'}
-          </button>
+      {[["🏏 Top Run Scorers", bats, [["Player", false, T.text], ["M", true, T.textMid], ["Runs", true, T.gold], ["Balls", true, T.textMid], ["HS", true, T.textMid], ["4s", true, T.textMid], ["6s", true, T.textMid], ["SR", true, T.accent]], r => [r.name, r.mc, r.runs, r.balls, r.hs, r.f4, r.s6, sr(r.runs, r.balls)]],
+        ["🎳 Top Wicket Takers", bowls, [["Player", false, T.text], ["M", true, T.textMid], ["Wkts", true, T.gold], ["Overs", true, T.textMid], ["Runs", true, T.textMid], ["Econ", true, T.accent]], r => [r.name, r.mc, r.wkts, ovsDisp(r.wb), r.wr, econ(r.wr, r.wb)]]
+      ].map(([title, rows, cols, vals]) => (
+        <div key={title} style={{ marginBottom: 28 }}>
+          <div style={{ color: T.text, fontWeight: 800, fontSize: 14, marginBottom: 12 }}>{title}</div>
+          <Card style={{ padding: "0 4px", overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead><tr>{cols.map(([h]) => <th key={h} style={{ padding: "8px 10px", textAlign: h === "Player" ? "left" : "center", color: T.textDim, fontWeight: 700, fontSize: 10, letterSpacing: 1, borderBottom: `1px solid ${T.border}` }}>{h}</th>)}</tr></thead>
+              <tbody>
+                {rows.length === 0 && <tr><td colSpan={cols.length} style={{ padding: 20, textAlign: "center", color: T.textDim }}>No data yet</td></tr>}
+                {rows.map((r, ri) => {
+                  const vs = vals(r);
+                  return <tr key={ri} style={{ borderTop: `1px solid ${T.border}` }}>{cols.map(([h, center, color], ci) => <td key={h} style={{ padding: "9px 10px", textAlign: center ? "center" : "left", color, fontWeight: ci === 2 ? 700 : 400 }}>{vs[ci]}</td>)}</tr>;
+                })}
+              </tbody>
+            </table>
+          </Card>
         </div>
-        {editing && (
-          <>
-            <Input label="TOURNAMENT NAME" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} />
-            <button onClick={save} style={{ width:'100%', padding:'12px', borderRadius:10, background:'linear-gradient(135deg,var(--accent2),var(--accent))', border:'none', color:'var(--text)', fontWeight:800, fontSize:14, cursor:'pointer' }}>Save Changes</button>
-          </>
-        )}
-        {!editing && (
-          <div style={{ marginTop:10, display:'flex', gap:16 }}>
-            <div><div style={{ fontSize:11, color:'var(--subtext)' }}>Name</div><div style={{ fontSize:14, color:'var(--text2)', fontWeight:700 }}>{t.name}</div></div>
-            <div><div style={{ fontSize:11, color:'var(--subtext)' }}>Status</div><div style={{ fontSize:14, color:'var(--accent)', fontWeight:700, textTransform:'capitalize' }}>{t.status}</div></div>
-          </div>
-        )}
-      </Card>
-
-      {/* actions */}
-      <Card style={{ padding:'14px 16px', marginBottom:12 }}>
-        <div style={{ fontSize:13, fontWeight:800, color:'var(--text2)', marginBottom:12 }}>Actions</div>
-        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-          <button onClick={genFixtures} style={{ padding:'12px', borderRadius:10, background:'rgba(74,222,128,0.1)', border:'1px solid rgba(74,222,128,0.2)', color:'#4ade80', fontWeight:800, fontSize:13, cursor:'pointer' }}>
-            🗓 Generate League Fixtures (Round Robin)
-          </button>
-          {leagueDone && t.teams.length >= 2 && (
-            <button onClick={() => window.dispatchEvent(new CustomEvent('switchTab',{detail:'playoffs'}))} style={{ padding:'12px', borderRadius:10, background:'rgba(192,132,252,0.1)', border:'1px solid rgba(192,132,252,0.2)', color:'#c084fc', fontWeight:800, fontSize:13, cursor:'pointer' }}>
-              🏆 Set Up Playoffs →
-            </button>
-          )}
-        </div>
-      </Card>
-    </div>
-  )
-}
-
-// ── TEAMS TAB ─────────────────────────────────────────────────────────────────
-function TeamsTab({ t, refresh }) {
-  const [addingTeam, setAddingTeam]     = useState(false)
-  const [editTeam, setEditTeam]         = useState(null)
-  const [teamForm, setTeamForm]         = useState({ name:'', logoUrl:'' })
-  const [addingPlayer, setAddingPlayer] = useState(null)
-  const [playerForm, setPlayerForm]     = useState({ name:'', imageUrl:'' })
-  const [expanded, setExpanded]         = useState({})
-
-  const saveTeam = async () => {
-    if (!teamForm.name.trim()) return
-    if (editTeam) {
-      await axios.patch(`${API}/${t._id}/teams/${editTeam._id}`, teamForm, { headers:headers() })
-    } else {
-      await axios.post(`${API}/${t._id}/teams`, teamForm, { headers:headers() })
-    }
-    refresh(); setAddingTeam(false); setEditTeam(null); setTeamForm({ name:'', logoUrl:'' })
-  }
-
-  const deleteTeam = async (teamId) => {
-    if (!window.confirm('Remove team?')) return
-    await axios.delete(`${API}/${t._id}/teams/${teamId}`, { headers:headers() })
-    refresh()
-  }
-
-  const savePlayer = async (teamId) => {
-    if (!playerForm.name.trim()) return
-    await axios.post(`${API}/${t._id}/teams/${teamId}/players`, playerForm, { headers:headers() })
-    refresh(); setAddingPlayer(null); setPlayerForm({ name:'', imageUrl:'' })
-  }
-
-  const deletePlayer = async (teamId, playerId) => {
-    await axios.delete(`${API}/${t._id}/teams/${teamId}/players/${playerId}`, { headers:headers() })
-    refresh()
-  }
-
-  return (
-    <div style={{ padding:'12px 12px 0' }}>
-      {(addingTeam || editTeam) && (
-        <Card style={{ padding:16, marginBottom:12, border:'1px solid rgba(255,68,68,0.2)' }}>
-          <div style={{ fontSize:14, fontWeight:800, color:'var(--text)', marginBottom:14 }}>{editTeam ? 'Edit Team' : 'Add Team'}</div>
-          <div style={{ display:'flex', gap:14, alignItems:'flex-start', marginBottom:14 }}>
-            <ImageUpload current={teamForm.logoUrl} onUpload={url => setTeamForm(f=>({...f,logoUrl:url}))} label="Logo" size={60} />
-            <div style={{ flex:1 }}>
-              <Input label="TEAM NAME" value={teamForm.name} onChange={e=>setTeamForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Royal Challengers" />
-            </div>
-          </div>
-          <div style={{ display:'flex', gap:8 }}>
-            <button onClick={() => { setAddingTeam(false); setEditTeam(null); setTeamForm({ name:'', logoUrl:'' }) }} style={{ flex:1, padding:'11px', borderRadius:10, background:'var(--header)', border:'1px solid #2a2a2a', color:'var(--subtext)', fontWeight:800, fontSize:13, cursor:'pointer' }}>Cancel</button>
-            <button onClick={saveTeam} style={{ flex:2, padding:'11px', borderRadius:10, background:'linear-gradient(135deg,var(--accent2),var(--accent))', border:'none', color:'var(--text)', fontWeight:800, fontSize:13, cursor:'pointer' }}>Save Team</button>
-          </div>
-        </Card>
-      )}
-
-      {t.teams.map(team => (
-        <Card key={team._id} style={{ marginBottom:10 }}>
-          {/* team header */}
-          <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', borderBottom: expanded[team._id] ? '1px solid var(--border)' : 'none' }}>
-            <div style={{ width:40, height:40, borderRadius:10, background:'var(--surface)', overflow:'hidden', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
-              {team.logoUrl ? <img src={team.logoUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}/> : <span style={{ fontSize:18 }}>🏏</span>}
-            </div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:15, fontWeight:800, color:'var(--text)' }}>{team.name}</div>
-              <div style={{ fontSize:11, color:'var(--subtext)' }}>{team.players.length} players</div>
-            </div>
-            <div style={{ display:'flex', gap:6 }}>
-              <button onClick={() => { setEditTeam(team); setTeamForm({ name:team.name, logoUrl:team.logoUrl||'' }); setAddingTeam(false) }} style={{ width:30, height:30, borderRadius:7, background:'var(--border)', border:'1px solid var(--border)', color:'var(--subtext)', fontSize:13, cursor:'pointer' }}>✎</button>
-              <button onClick={() => setExpanded(e=>({...e,[team._id]:!e[team._id]}))} style={{ width:30, height:30, borderRadius:7, background:'var(--border)', border:'1px solid var(--border)', color:'var(--subtext)', fontSize:13, cursor:'pointer' }}>
-                {expanded[team._id] ? '▲' : '▼'}
-              </button>
-              <button onClick={() => deleteTeam(team._id)} style={{ width:30, height:30, borderRadius:7, background:'rgba(255,68,68,0.1)', border:'1px solid rgba(255,68,68,0.2)', color:'var(--accent)', fontSize:13, cursor:'pointer' }}>✕</button>
-            </div>
-          </div>
-
-          {/* players */}
-          {expanded[team._id] && (
-            <div style={{ padding:'8px 14px 12px' }}>
-              {team.players.map((p,i) => (
-                <div key={p._id} style={{ display:'flex', alignItems:'center', gap:10, padding:'7px 0', borderBottom:'1px solid var(--border2)' }}>
-                  <div style={{ width:32, height:32, borderRadius:'50%', background:'var(--surface)', overflow:'hidden', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                    {p.imageUrl ? <img src={p.imageUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}/> : <span style={{ fontSize:14, color:'var(--subtext)' }}>👤</span>}
-                  </div>
-                  <div style={{ flex:1, fontSize:13, color:'var(--text2)', fontWeight:600 }}>{i+1}. {p.name}</div>
-                  <button onClick={() => deletePlayer(team._id, p._id)} style={{ width:24, height:24, borderRadius:6, background:'rgba(255,68,68,0.08)', border:'1px solid rgba(255,68,68,0.15)', color:'var(--accent)', fontSize:11, cursor:'pointer' }}>✕</button>
-                </div>
-              ))}
-
-              {/* add player inline */}
-              {addingPlayer === team._id ? (
-                <div style={{ marginTop:10 }}>
-                  <div style={{ display:'flex', gap:10, alignItems:'flex-start', marginBottom:8 }}>
-                    <ImageUpload current={playerForm.imageUrl} onUpload={url=>setPlayerForm(f=>({...f,imageUrl:url}))} size={40} />
-                    <input value={playerForm.name} onChange={e=>setPlayerForm(f=>({...f,name:e.target.value}))}
-                      placeholder="Player name" onKeyDown={e=>e.key==='Enter'&&savePlayer(team._id)}
-                      style={{ flex:1, background:'var(--surface)', border:'1px solid #2a2a2a', borderRadius:9, padding:'9px 12px', color:'var(--text)', fontSize:13, outline:'none' }} />
-                  </div>
-                  <div style={{ display:'flex', gap:8 }}>
-                    <button onClick={() => { setAddingPlayer(null); setPlayerForm({ name:'', imageUrl:'' }) }} style={{ flex:1, padding:'8px', borderRadius:8, background:'var(--header)', border:'1px solid #2a2a2a', color:'var(--subtext)', fontWeight:700, fontSize:12, cursor:'pointer' }}>Cancel</button>
-                    <button onClick={() => savePlayer(team._id)} style={{ flex:2, padding:'8px', borderRadius:8, background:'rgba(74,222,128,0.15)', border:'1px solid rgba(74,222,128,0.25)', color:'#4ade80', fontWeight:800, fontSize:12, cursor:'pointer' }}>Add Player</button>
-                  </div>
-                </div>
-              ) : (
-                <button onClick={() => { setAddingPlayer(team._id); setPlayerForm({ name:'', imageUrl:'' }) }} style={{ marginTop:8, width:'100%', padding:'8px', borderRadius:9, background:'var(--border2)', border:'1px dashed var(--border)', color:'var(--subtext)', fontSize:12, fontWeight:700, cursor:'pointer' }}>
-                  + Add Player
-                </button>
-              )}
-            </div>
-          )}
-        </Card>
       ))}
-
-      <button onClick={() => { setAddingTeam(true); setEditTeam(null); setTeamForm({ name:'', logoUrl:'' }) }} style={{ width:'100%', padding:'13px', borderRadius:12, background:'rgba(255,68,68,0.08)', border:'1px dashed rgba(255,68,68,0.25)', color:'var(--accent)', fontWeight:800, fontSize:13, cursor:'pointer', marginTop:4 }}>
-        + Add Team
-      </button>
     </div>
-  )
+  );
 }
 
-// ── FIXTURES TAB ──────────────────────────────────────────────────────────────
-function FixturesTab({ t, refresh, navigate }) {
-  const [addingFixture, setAddingFixture] = useState(false)
-  const [form, setForm]                   = useState({ team1:'', team2:'', date:'', time:'', venue:'' })
-  const [startModal, setStartModal]       = useState(null)
-  const [tossForm, setTossForm]           = useState({ tossWinner:'', battingFirst:'' })
+// ─── MATCH SETUP ──────────────────────────────────────────────────────────────
+function MatchSetup({ t, f, dispatch }) {
+  const navigate = useNavigate();
+  const [toss, setToss] = useState(f.team1);
+  const [batFirst, setBatFirst] = useState(f.team1);
+  const [overs, setOvers] = useState(String(f.overs || t.defaultOvers || 10));
+  const [t1p, setT1p] = useState((f.t1p || []).join(", "));
+  const [t2p, setT2p] = useState((f.t2p || []).join(", "));
+  const [qName, setQName] = useState(""); const [qTeam, setQTeam] = useState(f.team1);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const leagueFixtures  = t.fixtures.filter(f => f.stage === 'league')
-  const playoffFixtures = t.fixtures.filter(f => f.stage !== 'league')
+  const parse = s => s.split(",").map(x => x.trim()).filter(Boolean);
+  const addQ = () => { if (!qName.trim()) return; qTeam === f.team1 ? setT1p(p => p ? p + ", " + qName.trim() : qName.trim()) : setT2p(p => p ? p + ", " + qName.trim() : qName.trim()); setQName(""); };
 
-  const addFixture = async () => {
-    if (!form.team1 || !form.team2 || form.team1===form.team2) return alert('Select 2 different teams')
-    await axios.post(`${API}/${t._id}/fixtures`, { ...form, stage:'league', status:'scheduled' }, { headers:headers() })
-    refresh(); setAddingFixture(false); setForm({ team1:'', team2:'', date:'', time:'', venue:'' })
-  }
-
-  const deleteFixture = async (fid) => {
-    if (!window.confirm('Delete fixture?')) return
-    await axios.delete(`${API}/${t._id}/fixtures/${fid}`, { headers:headers() })
-    refresh()
-  }
-
-  const startMatch = async () => {
-    if (!tossForm.tossWinner || !tossForm.battingFirst) return alert('Complete toss details')
+  const handleStart = async () => {
+    setLoading(true); setError("");
     try {
-      const { data } = await axios.post(`${API}/${t._id}/fixtures/${startModal._id}/start`, tossForm, { headers:headers() })
-      setStartModal(null)
-      navigate(`/scoring/${data.match._id}`)
-    } catch (e) { alert(e.response?.data?.message || 'Failed to start') }
-  }
+      const token = localStorage.getItem("token");
+      const headers = { Authorization: `Bearer ${token}` };
+      const t1players = parse(t1p);
+      const t2players = parse(t2p);
+      const ovNum = parseInt(overs) || 10;
+      const bat2 = batFirst === f.team1 ? f.team2 : f.team1;
 
-  const syncResult = async (fid) => {
-    await axios.post(`${API}/${t._id}/fixtures/${fid}/sync`, {}, { headers:headers() })
-    refresh()
-  }
+      // Create real match in MongoDB
+      const { data: match } = await axios.post("/api/matches", {
+        team1: f.team1,
+        team2: f.team2,
+        overs: ovNum,
+        tossWinner: toss,
+        battingFirst: batFirst,
+        wideRuns: t.wideRuns ?? 1,
+        noBallRuns: t.noBallRuns ?? 1,
+        team1Players: t1players,
+        team2Players: t2players,
+        tournamentId: t.id,
+        tournamentName: t.name,
+        fixtureId: f.id,
+      }, { headers });
 
-  const FixtureCard = ({ f }) => {
-    const statusColor = { scheduled:'var(--subtext)', live:'#4ade80', completed:'var(--subtext)' }
-    return (
-      <Card style={{ marginBottom:8, border: f.status==='live' ? '1px solid rgba(74,222,128,0.25)' : undefined }}>
-        <div style={{ padding:'12px 14px' }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-            <span style={{ fontSize:10, fontWeight:800, color: statusColor[f.status], letterSpacing:1 }}>
-              {f.status==='live' ? '● LIVE' : f.status.toUpperCase()}
-              {f.stage!=='league' && <span style={{ color:'#c084fc', marginLeft:6 }}>
-                {f.stage==='sf1'?'SF1':f.stage==='sf2'?'SF2':'FINAL'}
-              </span>}
-            </span>
-            {(f.date || f.time) && <span style={{ fontSize:11, color:'var(--subtext)' }}>{f.date} {f.time}</span>}
-          </div>
+      // Link real match ID to fixture in tournament state
+      dispatch({ type: "SET_FIXTURE_MATCH", tid: t.id, fid: f.id, matchId: match._id, overs: ovNum });
 
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-            <div style={{ fontSize:15, fontWeight:800, color:'var(--text)' }}>{f.team1}</div>
-            <div style={{ fontSize:12, color:'var(--accent)', fontWeight:800 }}>VS</div>
-            <div style={{ fontSize:15, fontWeight:800, color:'var(--text)', textAlign:'right' }}>{f.team2}</div>
-          </div>
-
-          {f.status === 'completed' && (
-            <div style={{ marginTop:6, fontSize:12, color:'#facc15', fontWeight:700 }}>🏆 {f.result}</div>
-          )}
-          {f.status === 'completed' && f.team1Score && (
-            <div style={{ marginTop:4, display:'flex', justifyContent:'space-between', fontSize:11, color:'var(--subtext)' }}>
-              <span>{f.team1Score}</span><span>{f.team2Score}</span>
-            </div>
-          )}
-          {f.venue && <div style={{ fontSize:11, color:'var(--muted)', marginTop:4 }}>📍 {f.venue}</div>}
-
-          <div style={{ display:'flex', gap:8, marginTop:10 }}>
-            {f.status === 'scheduled' && (
-              <button onClick={() => { setStartModal(f); setTossForm({ tossWinner:'', battingFirst:'' }) }} style={{ flex:1, padding:'9px', borderRadius:9, background:'linear-gradient(135deg,var(--accent2),var(--accent))', border:'none', color:'var(--text)', fontWeight:800, fontSize:12, cursor:'pointer' }}>
-                ▶ Start Match
-              </button>
-            )}
-            {f.status === 'live' && f.matchId && (
-              <>
-                <button onClick={() => navigate(`/scoring/${f.matchId}`)} style={{ flex:1, padding:'9px', borderRadius:9, background:'rgba(74,222,128,0.15)', border:'1px solid rgba(74,222,128,0.25)', color:'#4ade80', fontWeight:800, fontSize:12, cursor:'pointer' }}>
-                  🏏 Continue Scoring
-                </button>
-                <button onClick={() => syncResult(f._id)} style={{ padding:'9px 12px', borderRadius:9, background:'var(--border2)', border:'1px solid var(--border)', color:'var(--subtext)', fontWeight:700, fontSize:11, cursor:'pointer' }}>
-                  Sync
-                </button>
-              </>
-            )}
-            {f.status !== 'live' && (
-              <button onClick={() => deleteFixture(f._id)} style={{ width:34, height:34, borderRadius:9, background:'rgba(255,68,68,0.08)', border:'1px solid rgba(255,68,68,0.15)', color:'var(--accent)', fontSize:13, cursor:'pointer' }}>✕</button>
-            )}
-          </div>
-        </div>
-      </Card>
-    )
-  }
+      // Navigate to the real Scoring page
+      navigate(`/scoring/${match._id}`);
+    } catch (err) {
+      setError("Failed to start match. Please try again.");
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div style={{ padding:'12px 12px 0' }}>
-      {/* Toss / Start modal */}
-      {startModal && (
-        <div style={{ position:'fixed', inset:0, background:'var(--overlay)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding:20 }}>
-          <div style={{ width:'100%', maxWidth:360, background:'var(--header)', borderRadius:20, padding:'24px 20px', border:'1px solid rgba(255,68,68,0.3)' }}>
-            <div style={{ fontSize:16, fontWeight:800, color:'var(--text)', marginBottom:4 }}>Start Match</div>
-            <div style={{ fontSize:13, color:'var(--subtext)', marginBottom:20 }}>{startModal.team1} vs {startModal.team2}</div>
-
-            <div style={{ fontSize:11, color:'var(--subtext)', fontWeight:800, letterSpacing:1, marginBottom:8 }}>TOSS WON BY</div>
-            <div style={{ display:'flex', gap:8, marginBottom:16 }}>
-              {[startModal.team1, startModal.team2].map(tm => (
-                <button key={tm} onClick={() => setTossForm(f=>({...f,tossWinner:tm,battingFirst:''}))} style={{
-                  flex:1, padding:'10px', borderRadius:10,
-                  background: tossForm.tossWinner===tm ? 'rgba(204,0,0,0.2)' : 'var(--header)',
-                  border: `2px solid ${tossForm.tossWinner===tm ? 'var(--accent)' : 'var(--muted)'}`,
-                  color: tossForm.tossWinner===tm ? 'var(--text)' : 'var(--subtext)', fontWeight:700, fontSize:13, cursor:'pointer'
-                }}>{tm}</button>
-              ))}
-            </div>
-
-            {tossForm.tossWinner && (
-              <>
-                <div style={{ fontSize:11, color:'var(--subtext)', fontWeight:800, letterSpacing:1, marginBottom:8 }}>CHOSE TO BAT</div>
-                <div style={{ display:'flex', gap:8, marginBottom:20 }}>
-                  {[startModal.team1, startModal.team2].map(tm => (
-                    <button key={tm} onClick={() => setTossForm(f=>({...f,battingFirst:tm}))} style={{
-                      flex:1, padding:'10px', borderRadius:10,
-                      background: tossForm.battingFirst===tm ? 'rgba(74,222,128,0.15)' : 'var(--header)',
-                      border: `2px solid ${tossForm.battingFirst===tm ? '#4ade80' : 'var(--muted)'}`,
-                      color: tossForm.battingFirst===tm ? '#4ade80' : 'var(--subtext)', fontWeight:700, fontSize:13, cursor:'pointer'
-                    }}>{tm}</button>
-                  ))}
-                </div>
-              </>
-            )}
-
-            <div style={{ display:'flex', gap:8 }}>
-              <button onClick={() => setStartModal(null)} style={{ flex:1, padding:'12px', borderRadius:10, background:'var(--header)', border:'1px solid #2a2a2a', color:'var(--subtext)', fontWeight:800, fontSize:13, cursor:'pointer' }}>Cancel</button>
-              <button onClick={startMatch} disabled={!tossForm.battingFirst} style={{ flex:2, padding:'12px', borderRadius:10, background: tossForm.battingFirst ? 'linear-gradient(135deg,#cc0000,#ff4444)' : 'var(--muted)', border:'none', color: tossForm.battingFirst ? 'var(--text)' : 'var(--subtext)', fontWeight:800, fontSize:13, cursor: tossForm.battingFirst ? 'pointer' : 'not-allowed' }}>
-                🏏 Start Match
-              </button>
-            </div>
-          </div>
+    <div style={{ maxWidth: 680, margin: "0 auto", padding: "28px 20px" }}>
+      <div style={{ marginBottom: 22 }}>
+        <div style={{ color: T.textDim, fontSize: 10, fontWeight: 800, letterSpacing: 2, marginBottom: 8 }}>MATCH SETUP</div>
+        <div style={{ fontSize: 20, fontWeight: 900 }}>
+          <span style={{ color: T.sky }}>{f.team1}</span>
+          <span style={{ color: T.textDim, margin: "0 10px", fontSize: 15 }}>vs</span>
+          <span style={{ color: T.purple }}>{f.team2}</span>
         </div>
-      )}
-
-      {/* add fixture form */}
-      {addingFixture && (
-        <Card style={{ padding:16, marginBottom:12, border:'1px solid rgba(255,68,68,0.2)' }}>
-          <div style={{ fontSize:14, fontWeight:800, color:'var(--text)', marginBottom:14 }}>Add Fixture</div>
-          <div style={{ display:'flex', gap:8, marginBottom:8 }}>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:11, color:'var(--subtext)', fontWeight:800, marginBottom:6 }}>TEAM 1</div>
-              <select value={form.team1} onChange={e=>setForm(f=>({...f,team1:e.target.value}))} style={{ width:'100%', background:'var(--surface)', border:'1px solid #2a2a2a', borderRadius:9, padding:'10px 12px', color:'var(--text)', fontSize:13, outline:'none' }}>
-                <option value="">Select</option>
-                {t.teams.map(tm=><option key={tm._id} value={tm.name}>{tm.name}</option>)}
-              </select>
-            </div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:11, color:'var(--subtext)', fontWeight:800, marginBottom:6 }}>TEAM 2</div>
-              <select value={form.team2} onChange={e=>setForm(f=>({...f,team2:e.target.value}))} style={{ width:'100%', background:'var(--surface)', border:'1px solid #2a2a2a', borderRadius:9, padding:'10px 12px', color:'var(--text)', fontSize:13, outline:'none' }}>
-                <option value="">Select</option>
-                {t.teams.map(tm=><option key={tm._id} value={tm.name}>{tm.name}</option>)}
-              </select>
-            </div>
-          </div>
-          <div style={{ display:'flex', gap:8, marginBottom:8 }}>
-            <input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} style={{ flex:1, background:'var(--surface)', border:'1px solid #2a2a2a', borderRadius:9, padding:'10px 12px', color:'var(--text)', fontSize:13, outline:'none' }}/>
-            <input type="time" value={form.time} onChange={e=>setForm(f=>({...f,time:e.target.value}))} style={{ flex:1, background:'var(--surface)', border:'1px solid #2a2a2a', borderRadius:9, padding:'10px 12px', color:'var(--text)', fontSize:13, outline:'none' }}/>
-          </div>
-          <input value={form.venue} onChange={e=>setForm(f=>({...f,venue:e.target.value}))} placeholder="Venue (optional)" style={{ width:'100%', background:'var(--surface)', border:'1px solid #2a2a2a', borderRadius:9, padding:'10px 12px', color:'var(--text)', fontSize:13, outline:'none', boxSizing:'border-box', marginBottom:12 }}/>
-          <div style={{ display:'flex', gap:8 }}>
-            <button onClick={()=>setAddingFixture(false)} style={{ flex:1, padding:'11px', borderRadius:10, background:'var(--header)', border:'1px solid #2a2a2a', color:'var(--subtext)', fontWeight:800, fontSize:13, cursor:'pointer' }}>Cancel</button>
-            <button onClick={addFixture} style={{ flex:2, padding:'11px', borderRadius:10, background:'linear-gradient(135deg,var(--accent2),var(--accent))', border:'none', color:'var(--text)', fontWeight:800, fontSize:13, cursor:'pointer' }}>Add Fixture</button>
-          </div>
-        </Card>
-      )}
-
-      {leagueFixtures.length === 0 && playoffFixtures.length === 0 ? (
-        <div style={{ textAlign:'center', padding:'40px 20px', color:'var(--muted)' }}>
-          <div style={{ fontSize:36, marginBottom:8 }}>🗓</div>
-          <div style={{ fontSize:14, color:'var(--subtext)', fontWeight:700 }}>No fixtures yet</div>
-          <div style={{ fontSize:12, color:'var(--muted)', marginTop:4 }}>Use Overview → Generate Fixtures or add manually</div>
-        </div>
-      ) : (
-        <>
-          {leagueFixtures.length > 0 && (
-            <>
-              <div style={{ fontSize:11, color:'var(--subtext)', fontWeight:800, letterSpacing:1, padding:'8px 2px' }}>LEAGUE STAGE</div>
-              {leagueFixtures.map(f => <FixtureCard key={f._id} f={f} />)}
-            </>
-          )}
-          {playoffFixtures.length > 0 && (
-            <>
-              <div style={{ fontSize:11, color:'#c084fc', fontWeight:800, letterSpacing:1, padding:'12px 2px 8px' }}>PLAYOFFS</div>
-              {playoffFixtures.map(f => <FixtureCard key={f._id} f={f} />)}
-            </>
-          )}
-        </>
-      )}
-
-      {!addingFixture && (
-        <button onClick={() => setAddingFixture(true)} style={{ width:'100%', padding:'12px', borderRadius:12, background:'rgba(255,68,68,0.08)', border:'1px dashed rgba(255,68,68,0.25)', color:'var(--accent)', fontWeight:800, fontSize:13, cursor:'pointer', marginTop:8 }}>
-          + Add Fixture Manually
-        </button>
-      )}
-    </div>
-  )
-}
-
-// ── POINTS TABLE TAB ──────────────────────────────────────────────────────────
-function PointsTab({ t }) {
-  const table = computePoints(t.teams, t.fixtures)
-  return (
-    <div style={{ padding:'12px 12px 0' }}>
-      <Card>
-        {/* header */}
-        <div style={{ display:'grid', gridTemplateColumns:'28px 1fr 32px 28px 28px 40px 56px', padding:'8px 14px', background:'var(--border2)', borderBottom:'1px solid var(--border)' }}>
-          <div style={{ fontSize:10, color:'var(--muted)', fontWeight:800 }}>#</div>
-          <div style={{ fontSize:10, color:'var(--muted)', fontWeight:800 }}>TEAM</div>
-          {['P','W','L','PTS','NRR'].map(h => <div key={h} style={{ fontSize:10, color:'var(--muted)', fontWeight:800, textAlign:'center' }}>{h}</div>)}
-        </div>
-        {table.length === 0 ? (
-          <div style={{ padding:'30px', textAlign:'center', color:'var(--subtext)', fontSize:13 }}>No matches completed yet</div>
-        ) : table.map((row, i) => (
-          <div key={row.name} style={{ display:'grid', gridTemplateColumns:'28px 1fr 32px 28px 28px 40px 56px', padding:'12px 14px', borderBottom:'1px solid var(--border2)', alignItems:'center', background: i < 2 ? 'rgba(74,222,128,0.04)' : i < 4 ? 'rgba(96,165,250,0.03)' : 'transparent' }}>
-            <div style={{ fontSize:13, color: i===0?'#facc15':i<2?'#4ade80':'var(--subtext)', fontWeight:800 }}>{i+1}</div>
-            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-              <div style={{ width:28, height:28, borderRadius:7, background:'var(--surface)', overflow:'hidden', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                {row.logoUrl ? <img src={row.logoUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}/> : <span style={{ fontSize:12 }}>🏏</span>}
-              </div>
-              <span style={{ fontSize:13, color: i<2?'var(--text)':'var(--text2)', fontWeight:700, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:90 }}>{row.name}</span>
-            </div>
-            <div style={{ fontSize:13, color:'var(--subtext)', textAlign:'center' }}>{row.p}</div>
-            <div style={{ fontSize:13, color:'#4ade80', fontWeight:700, textAlign:'center' }}>{row.w}</div>
-            <div style={{ fontSize:13, color:'var(--accent)', fontWeight:700, textAlign:'center' }}>{row.l}</div>
-            <div style={{ fontSize:15, color:'var(--text)', fontWeight:800, textAlign:'center' }}>{row.pts}</div>
-            <div style={{ fontSize:12, color: parseFloat(row.nrr)>=0?'#4ade80':'var(--accent)', fontWeight:700, textAlign:'center' }}>{row.nrr}</div>
-          </div>
-        ))}
-        {table.length > 0 && (
-          <div style={{ padding:'8px 14px', background:'var(--border2)', display:'flex', gap:16 }}>
-            <div style={{ display:'flex', alignItems:'center', gap:5 }}><div style={{ width:8, height:8, borderRadius:2, background:'rgba(74,222,128,0.4)' }}/><span style={{ fontSize:10, color:'var(--subtext)' }}>Qualify playoffs</span></div>
-            <div style={{ display:'flex', alignItems:'center', gap:5 }}><div style={{ width:8, height:8, borderRadius:2, background:'rgba(96,165,250,0.3)' }}/><span style={{ fontSize:10, color:'var(--subtext)' }}>Possible qualify</span></div>
-          </div>
-        )}
-      </Card>
-    </div>
-  )
-}
-
-// ── STATS TAB ─────────────────────────────────────────────────────────────────
-function StatsTab({ t, matches }) {
-  const [statTab, setStatTab] = useState('batting')
-  const stats = computeStats(t.fixtures, matches)
-
-  const batting = [...stats].filter(p => p.balls > 0)
-  const bowling = [...stats].filter(p => p.oversBowled > 0)
-
-  // Generic bar-chart stat row — supports ascending sort (lower is better)
-  const StatRow = ({ label, players, valueKey, format, color, asc, subtitle }) => {
-    const sorted = [...players]
-      .filter(p => {
-        const v = parseFloat(p[valueKey])
-        return !isNaN(v) && p[valueKey] !== '—'
-      })
-      .sort((a, b) => asc
-        ? parseFloat(a[valueKey]) - parseFloat(b[valueKey])
-        : parseFloat(b[valueKey]) - parseFloat(a[valueKey])
-      )
-      .slice(0, 5)
-
-    const vals   = sorted.map(p => parseFloat(p[valueKey]))
-    const maxVal = asc ? Math.max(...vals) || 1 : (vals[0] || 1)
-
-    return (
-      <Card style={{ marginBottom:10 }}>
-        <div style={{ padding:'10px 14px 6px', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <div style={{ fontSize:12, fontWeight:800, color:'var(--text2)', letterSpacing:0.5 }}>{label}</div>
-          {subtitle && <div style={{ fontSize:10, color:'var(--muted)', fontWeight:700 }}>{subtitle}</div>}
-        </div>
-        {sorted.map((p, i) => {
-          const raw  = p[valueKey]
-          const val  = parseFloat(raw)
-          const barW = asc
-            ? Math.min(100, (1 - (val - Math.min(...vals)) / (Math.max(...vals) - Math.min(...vals) || 1)) * 100)
-            : Math.min(100, (val / maxVal) * 100)
-          return (
-            <div key={p.name} style={{ padding:'8px 14px', borderBottom:'1px solid var(--border2)', display:'flex', alignItems:'center', gap:10 }}>
-              <div style={{ fontSize:13, color: i===0?color:'var(--subtext)', fontWeight:800, width:18 }}>{i+1}</div>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:13, color:'var(--text2)', fontWeight:700, marginBottom:3 }}>{p.name}</div>
-                <div style={{ height:4, background:'var(--muted)', borderRadius:2, overflow:'hidden' }}>
-                  <div style={{ height:'100%', borderRadius:2, background: color, width:`${barW}%`, transition:'width 0.4s' }}/>
-                </div>
-              </div>
-              <div style={{ fontFamily:'Rajdhani,sans-serif', fontSize:18, fontWeight:700, color: i===0?color:'var(--subtext)', minWidth:52, textAlign:'right' }}>
-                {format ? format(raw) : raw}
-              </div>
-            </div>
-          )
-        })}
-        {sorted.length === 0 && <div style={{ padding:'16px 14px', fontSize:12, color:'var(--muted)' }}>No data yet</div>}
-      </Card>
-    )
-  }
-
-  // Special row for bowling figures (e.g. "5/23") — sort by wickets desc, then runs asc
-  const BestFigRow = ({ players }) => {
-    const sorted = [...players]
-      .filter(p => p.bestWickets > 0)
-      .sort((a,b) => b.bestWickets - a.bestWickets || a.bestWicketsRuns - b.bestWicketsRuns)
-      .slice(0, 5)
-    return (
-      <Card style={{ marginBottom:10 }}>
-        <div style={{ padding:'10px 14px 6px', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between' }}>
-          <div style={{ fontSize:12, fontWeight:800, color:'var(--text2)', letterSpacing:0.5 }}>BEST BOWLING FIGURES</div>
-          <div style={{ fontSize:10, color:'var(--muted)', fontWeight:700 }}>in a match</div>
-        </div>
-        {sorted.map((p, i) => (
-          <div key={p.name} style={{ padding:'8px 14px', borderBottom:'1px solid var(--border2)', display:'flex', alignItems:'center', gap:10 }}>
-            <div style={{ fontSize:13, color: i===0?'#fb923c':'var(--subtext)', fontWeight:800, width:18 }}>{i+1}</div>
-            <div style={{ flex:1, fontSize:13, color:'var(--text2)', fontWeight:700 }}>{p.name}</div>
-            <div style={{ fontFamily:'Rajdhani,sans-serif', fontSize:20, fontWeight:700, color: i===0?'#fb923c':'var(--subtext)' }}>
-              {p.bestWickets}/{p.bestWicketsRuns}
-            </div>
-          </div>
-        ))}
-        {sorted.length === 0 && <div style={{ padding:'16px 14px', fontSize:12, color:'var(--muted)' }}>No data yet</div>}
-      </Card>
-    )
-  }
-
-  // Section divider
-  const Divider = ({ label }) => (
-    <div style={{ fontSize:10, color:'var(--muted)', fontWeight:800, letterSpacing:1.5, padding:'12px 2px 6px' }}>{label}</div>
-  )
-
-  return (
-    <div style={{ padding:'12px 12px 0' }}>
-      {/* tab switcher */}
-      <div style={{ display:'flex', gap:8, marginBottom:14, overflowX:'auto', paddingBottom:4 }}>
-        <Chip label="🏏 Batting" active={statTab==='batting'} onClick={()=>setStatTab('batting')} />
-        <Chip label="🎳 Bowling" active={statTab==='bowling'} onClick={()=>setStatTab('bowling')} />
+        <div style={{ marginTop: 6 }}>{stagePill(f.stage)}</div>
       </div>
 
-      {/* ── BATTING ── */}
-      {statTab === 'batting' && (
-        <>
-          <Divider label="RUNS & SCORING" />
-          <StatRow label="MOST RUNS"        players={batting} valueKey="runs"      color="#ff4444" />
-          <StatRow label="HIGHEST SCORE"    players={batting} valueKey="highScore" color="#ff6666" subtitle="in an innings" />
-          <StatRow label="BEST AVERAGE"     players={batting.filter(p=>p.timesOut>0)} valueKey="avg" color="#60a5fa" subtitle="min 1 dismissal" />
+      <Card style={{ marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+          <Sel label="Toss Winner" value={toss} onChange={setToss} options={[{ value: f.team1, label: f.team1 }, { value: f.team2, label: f.team2 }]} />
+          <Sel label="Batting First" value={batFirst} onChange={setBatFirst} options={[{ value: f.team1, label: f.team1 }, { value: f.team2, label: f.team2 }]} />
+          <Field label="Overs" type="number" value={overs} onChange={setOvers} />
+        </div>
+      </Card>
 
-          <Divider label="STRIKE PLAY" />
-          <StatRow label="BEST STRIKE RATE" players={batting.filter(p=>p.balls>=6)} valueKey="sr" color="#facc15" subtitle="min 6 balls" />
-          <StatRow label="MOST FOURS"       players={batting} valueKey="fours"     color="#4ade80" />
-          <StatRow label="MOST SIXES"       players={batting} valueKey="sixes"     color="#c084fc" />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+        {[[f.team1, t1p, setT1p, T.sky], [f.team2, t2p, setT2p, T.purple]].map(([team, val, setter, color]) => (
+          <Card key={team}>
+            <div style={{ color, fontSize: 12, fontWeight: 800, marginBottom: 10 }}>{team} Players</div>
+            <textarea value={val} onChange={e => setter(e.target.value)} placeholder="Player1, Player2, Player3…"
+              style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, padding: "8px 10px", fontSize: 12, fontFamily: "inherit", resize: "vertical", minHeight: 88, boxSizing: "border-box", outline: "none" }} />
+          </Card>
+        ))}
+      </div>
 
-          <Divider label="MILESTONES" />
-          <StatRow label="MOST HALF CENTURIES" players={batting} valueKey="fifties"   color="#fb923c" />
-          <StatRow label="MOST CENTURIES"      players={batting} valueKey="hundreds"  color="#facc15" />
-        </>
+      <Card style={{ marginBottom: 20 }}>
+        <div style={{ color: T.textDim, fontSize: 10, fontWeight: 800, letterSpacing: 1.5, marginBottom: 10 }}>⚡ QUICK ADD PLAYER</div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <select value={qTeam} onChange={e => setQTeam(e.target.value)} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, padding: "9px 12px", fontFamily: "inherit", fontSize: 13 }}>
+            <option value={f.team1}>{f.team1}</option>
+            <option value={f.team2}>{f.team2}</option>
+          </select>
+          <div style={{ flex: 1 }}><Field placeholder="Player name…" value={qName} onChange={setQName} /></div>
+          <Btn sm onClick={addQ} disabled={!qName.trim()} style={{ alignSelf: "flex-end" }}>Add</Btn>
+        </div>
+      </Card>
+
+      {error && (
+        <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, color: T.red, fontSize: 13 }}>
+          ⚠ {error}
+        </div>
       )}
 
-      {/* ── BOWLING ── */}
-      {statTab === 'bowling' && (
-        <>
-          <Divider label="WICKETS" />
-          <StatRow label="MOST WICKETS"       players={bowling} valueKey="wickets"     color="#ff4444" />
-          <BestFigRow players={bowling} />
-          <StatRow label="MOST 5-WICKET HAULS" players={bowling} valueKey="fiveWickets" color="#ff4444" subtitle="5W in an innings" />
-
-          <Divider label="ECONOMY & AVERAGES" />
-          <StatRow
-            label="BEST ECONOMY"
-            players={bowling.filter(p=>p.oversBowled>=6)}
-            valueKey="eco"
-            color="#4ade80"
-            asc
-            subtitle="min 1 over · lower is better"
-          />
-          <StatRow
-            label="BEST BOWLING AVERAGE"
-            players={bowling.filter(p=>p.wickets>=3)}
-            valueKey="bowlAvg"
-            color="#60a5fa"
-            asc
-            subtitle="runs per wicket · lower is better"
-          />
-          <StatRow
-            label="BEST BOWLING STRIKE RATE"
-            players={bowling.filter(p=>p.wickets>=3)}
-            valueKey="bowlSR"
-            color="#38bdf8"
-            asc
-            subtitle="balls per wicket · lower is better"
-          />
-
-          <Divider label="CONTROL" />
-          <StatRow label="MOST DOT BALLS"    players={bowling} valueKey="dotBalls"  color="#a3e635" />
-          <StatRow label="MOST OVERS BOWLED" players={bowling} valueKey="oversBowled" format={v=>fmt(parseInt(v))} color="#888" />
-        </>
-      )}
+      <Btn full onClick={handleStart} disabled={loading}>
+        {loading ? "⏳ Creating Match…" : "▶ Start Match"}
+      </Btn>
     </div>
-  )
+  );
 }
 
-// ── RESULTS TAB ───────────────────────────────────────────────────────────────
-function ResultsTab({ t }) {
-  const completed = t.fixtures.filter(f => f.status === 'completed')
+// ─── SCORING ──────────────────────────────────────────────────────────────────
+function Scoring({ t, m, f, dispatch }) {
+  const [striker, setStriker] = useState(m.striker || "");
+  const [nonStriker, setNonStriker] = useState(m.nonStriker || "");
+  const [bowler, setBowler] = useState(m.bowler || "");
+  const [editOvs, setEditOvs] = useState(false);
+  const [newOvs, setNewOvs] = useState(String(m.overs));
+  const [tab, setTab] = useState("score");
+
+  const ik = m.status === "innings1" ? "innings1" : "innings2";
+  const inn = m[ik];
+  const done = m.status === "completed";
+  const maxB = m.overs * 6;
+  const target = m.status === "innings2" ? m.innings1.runs + 1 : null;
+
+  const batP = inn.battingTeam === m.team1 ? m.t1p : m.t2p;
+  const bowlP = inn.battingTeam === m.team1 ? m.t2p : m.t1p;
+
+  const addBall = (runs, opts = {}) => {
+    if (done) return;
+    if (!striker || !bowler) { alert("Please select striker and bowler first!"); return; }
+    dispatch({ type: "ADD_BALL", tid: t.id, mid: m.id, ball: { runs, isWide: opts.wide || false, isNoBall: opts.nb || false, isWicket: opts.wkt || false, bat: striker, bowl: bowler }, striker: opts.wkt ? "" : striker, nonStriker });
+    if (opts.wkt) setStriker("");
+  };
+
+  const stBat = inn.bat?.find(b => b.name === striker);
+  const nsBat = inn.bat?.find(b => b.name === nonStriker);
+  const curBwl = inn.bowl?.find(b => b.name === bowler);
+
+  const bc = (b) => b.isWicket ? T.red : (b.isWide || b.isNoBall) ? T.gold : b.totalRuns === 6 ? T.accent : b.totalRuns === 4 ? T.sky : b.totalRuns === 0 ? T.textDim : T.textMid;
+  const recent = (inn.ballByBall || []).slice(-12);
+
   return (
-    <div style={{ padding:'12px 12px 0' }}>
-      {completed.length === 0 ? (
-        <div style={{ textAlign:'center', padding:'50px 20px', color:'var(--muted)' }}>
-          <div style={{ fontSize:36, marginBottom:8 }}>🏏</div>
-          <div style={{ fontSize:14, color:'var(--subtext)' }}>No completed matches yet</div>
-        </div>
-      ) : completed.map(f => (
-        <Card key={f._id} style={{ marginBottom:10, padding:'14px 16px' }}>
-          {f.stage !== 'league' && (
-            <div style={{ fontSize:10, color:'#c084fc', fontWeight:800, letterSpacing:1, marginBottom:6 }}>
-              {{ sf1:'SEMI FINAL 1', sf2:'SEMI FINAL 2', q1:'QUALIFIER 1', q2:'QUALIFIER 2', elim:'ELIMINATOR', qf1:'QUARTER FINAL 1', qf2:'QUARTER FINAL 2', qf3:'QUARTER FINAL 3', qf4:'QUARTER FINAL 4', final:'FINAL' }[f.stage] || f.stage.toUpperCase()}
+    <div style={{ maxWidth: 800, margin: "0 auto", padding: "16px" }}>
+      {/* Scoreboard */}
+      <div style={{ background: `linear-gradient(135deg,${T.card},#0e1c30)`, border: `1px solid ${T.border}`, borderRadius: 16, padding: "20px 22px", marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+          <div>
+            <div style={{ color: T.textDim, fontSize: 10, fontWeight: 800, letterSpacing: 2 }}>
+              {inn.battingTeam?.toUpperCase()} · {ik === "innings1" ? "1ST" : "2ND"} INNINGS
             </div>
-          )}
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-            <div style={{ fontSize:15, fontWeight:800, color: f.winner===f.team1?'var(--text)':'var(--subtext)' }}>{f.team1}</div>
-            <div style={{ fontSize:11, color:'var(--accent)', fontWeight:800 }}>VS</div>
-            <div style={{ fontSize:15, fontWeight:800, color: f.winner===f.team2?'var(--text)':'var(--subtext)', textAlign:'right' }}>{f.team2}</div>
+            <div style={{ marginTop: 4, lineHeight: 1 }}>
+              <span style={{ fontSize: 46, fontWeight: 900, color: T.text, letterSpacing: -1 }}>{inn.runs}</span>
+              <span style={{ fontSize: 28, color: T.textDim }}>/</span>
+              <span style={{ fontSize: 28, fontWeight: 700, color: T.textDim }}>{inn.wickets}</span>
+            </div>
+            <div style={{ color: T.textDim, fontSize: 14, marginTop: 4, display: "flex", gap: 14, flexWrap: "wrap" }}>
+              <span>{ovsDisp(inn.balls)} / {m.overs} ov</span>
+              {target && <span style={{ color: T.gold, fontWeight: 700 }}>Need {Math.max(0, target - inn.runs)} off {Math.max(0, maxB - inn.balls)} balls</span>}
+            </div>
+            {m.status === "innings2" && (
+              <div style={{ color: T.textDim, fontSize: 12, marginTop: 4 }}>
+                {m.innings1.battingTeam}: {m.innings1.runs}/{m.innings1.wickets} ({ovsDisp(m.innings1.balls)} ov)
+              </div>
+            )}
           </div>
-          {f.team1Score && (
-            <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:'var(--subtext)', marginBottom:6 }}>
-              <span style={{ color: f.winner===f.team1?'var(--text)':'var(--subtext)', fontFamily:'Rajdhani,sans-serif', fontSize:15, fontWeight:700 }}>{f.team1Score}</span>
-              <span style={{ color: f.winner===f.team2?'var(--text)':'var(--subtext)', fontFamily:'Rajdhani,sans-serif', fontSize:15, fontWeight:700 }}>{f.team2Score}</span>
-            </div>
-          )}
-          <div style={{ fontSize:12, color:'#facc15', fontWeight:700 }}>🏆 {f.result}</div>
-          {f.date && <div style={{ fontSize:11, color:'var(--muted)', marginTop:4 }}>{f.date} {f.time}</div>}
-        </Card>
-      ))}
-    </div>
-  )
-}
-
-// ── PLAYOFFS TAB ──────────────────────────────────────────────────────────────
-
-// Format definitions — stages in order, with metadata
-const PLAYOFF_FORMATS = {
-  simple: {
-    label: 'Simple Format',
-    desc:  'SF1 → SF2 → Final',
-    icon:  '⚡',
-    teamsNeeded: 4,
-    stages: [
-      { key:'sf1',   label:'Semi Final 1',  short:'SF 1',  color:'#c084fc', matchup:'1st vs 4th',  desc:'Top team vs 4th place' },
-      { key:'sf2',   label:'Semi Final 2',  short:'SF 2',  color:'#c084fc', matchup:'2nd vs 3rd',  desc:'2nd team vs 3rd place' },
-      { key:'final', label:'Final',          short:'FINAL', color:'#facc15', matchup:'SF1W vs SF2W', desc:'SF1 winner vs SF2 winner' },
-    ],
-  },
-  ipl: {
-    label: 'IPL Format',
-    desc:  'Q1 → Elim → Q2 → Final',
-    icon:  '🏆',
-    teamsNeeded: 4,
-    stages: [
-      { key:'q1',    label:'Qualifier 1',   short:'Q1',    color:'#60a5fa', matchup:'1st vs 2nd',  desc:'Top 2 — winner goes straight to Final' },
-      { key:'elim',  label:'Eliminator',    short:'ELIM',  color:'#fb923c', matchup:'3rd vs 4th',  desc:'Loser is eliminated' },
-      { key:'q2',    label:'Qualifier 2',   short:'Q2',    color:'#4ade80', matchup:'Q1L vs ElimW', desc:'Q1 loser vs Eliminator winner' },
-      { key:'final', label:'Final',          short:'FINAL', color:'#facc15', matchup:'Q1W vs Q2W',  desc:'Q1 winner vs Q2 winner' },
-    ],
-  },
-  top2: {
-    label: 'Top 2 Final',
-    desc:  'Direct Final (2 teams)',
-    icon:  '🎯',
-    teamsNeeded: 2,
-    stages: [
-      { key:'final', label:'Final', short:'FINAL', color:'#facc15', matchup:'1st vs 2nd', desc:'Top 2 teams play the Final' },
-    ],
-  },
-  cup: {
-    label: 'Cup Format',
-    desc:  'QF1/QF2/QF3/QF4 → SF1/SF2 → Final',
-    icon:  '🥇',
-    teamsNeeded: 8,
-    stages: [
-      { key:'qf1',   label:'Quarter Final 1', short:'QF1',   color:'#38bdf8', matchup:'1st vs 8th',  desc:'' },
-      { key:'qf2',   label:'Quarter Final 2', short:'QF2',   color:'#38bdf8', matchup:'2nd vs 7th',  desc:'' },
-      { key:'qf3',   label:'Quarter Final 3', short:'QF3',   color:'#38bdf8', matchup:'3rd vs 6th',  desc:'' },
-      { key:'qf4',   label:'Quarter Final 4', short:'QF4',   color:'#38bdf8', matchup:'4th vs 5th',  desc:'' },
-      { key:'sf1',   label:'Semi Final 1',    short:'SF1',   color:'#c084fc', matchup:'QF1W vs QF2W', desc:'' },
-      { key:'sf2',   label:'Semi Final 2',    short:'SF2',   color:'#c084fc', matchup:'QF3W vs QF4W', desc:'' },
-      { key:'final', label:'Final',            short:'FINAL', color:'#facc15', matchup:'SF1W vs SF2W', desc:'' },
-    ],
-  },
-}
-
-// Default teams per stage for each format
-const FORMAT_TEAMS = {
-  simple: { sf1:['1st','4th'],    sf2:['2nd','3rd'],    final:['SF1W','SF2W'] },
-  ipl:    { q1:['1st','2nd'],     elim:['3rd','4th'],   q2:['Q1L','ElimW'],    final:['Q1W','Q2W'] },
-  top2:   { final:['1st','2nd'] },
-  cup:    { qf1:['1st','8th'], qf2:['2nd','7th'], qf3:['3rd','6th'], qf4:['4th','5th'], sf1:['QF1W','QF2W'], sf2:['QF3W','QF4W'], final:['SF1W','SF2W'] },
-}
-
-function PlayoffsTab({ t, refresh, navigate }) {
-  const table   = computePoints(t.teams, t.fixtures)
-  const playoffFixtures = t.fixtures.filter(f => f.stage !== 'league')
-
-  // detect current format from existing fixtures
-  const detectFormat = () => {
-    const stages = new Set(playoffFixtures.map(f => f.stage))
-    if (stages.has('q1') || stages.has('elim')) return 'ipl'
-    if (stages.has('qf1') || stages.has('qf2')) return 'cup'
-    if (stages.has('sf1') || stages.has('sf2')) return 'simple'
-    if (stages.has('final') && playoffFixtures.length === 1) return 'top2'
-    return null
-  }
-
-  const [formatPicker, setFormatPicker] = useState(false)
-  const [editingFixture, setEditingFixture] = useState(null) // fixture being edited (teams/date)
-  const [editForm, setEditForm]             = useState({})
-  const [startModal, setStartModal]         = useState(null)
-  const [tossForm, setTossForm]             = useState({ tossWinner:'', battingFirst:'' })
-  const currentFormat = detectFormat()
-  const formatDef = currentFormat ? PLAYOFF_FORMATS[currentFormat] : null
-
-  // ── Generate playoffs with chosen format ──
-  const generatePlayoffs = async (formatKey) => {
-    const fmt    = PLAYOFF_FORMATS[formatKey]
-    const fmtTeams = FORMAT_TEAMS[formatKey]
-    const ranked = table.map(r => r.name)
-
-    const fixtures = fmt.stages.map(s => {
-      const [t1key, t2key] = fmtTeams[s.key] || ['TBD', 'TBD']
-      const resolveTeam = key => {
-        const ordinals = { '1st':0,'2nd':1,'3rd':2,'4th':3,'5th':4,'6th':5,'7th':6,'8th':7 }
-        if (ordinals[key] !== undefined) return ranked[ordinals[key]] || `TBD (${key})`
-        return `TBD (${key})`
-      }
-      return { team1: resolveTeam(t1key), team2: resolveTeam(t2key), stage: s.key, status:'scheduled', date:'', time:'', venue:'' }
-    })
-
-    try {
-      await axios.post(`${API}/${t._id}/generate-playoffs`, { format: formatKey, fixtures }, { headers:headers() })
-      refresh()
-      setFormatPicker(false)
-    } catch(e) { alert(e.response?.data?.message || 'Failed') }
-  }
-
-  // ── Start match ──
-  const startMatch = async () => {
-    if (!tossForm.battingFirst) return
-    try {
-      const { data } = await axios.post(`${API}/${t._id}/fixtures/${startModal._id}/start`, tossForm, { headers:headers() })
-      setStartModal(null)
-      navigate(`/scoring/${data.match._id}`)
-    } catch(e) { alert('Failed to start') }
-  }
-
-  const syncResult = async (fid) => {
-    await axios.post(`${API}/${t._id}/fixtures/${fid}/sync`, {}, { headers:headers() })
-    refresh()
-  }
-
-  // ── Save fixture edit (teams + schedule) ──
-  const saveFixtureEdit = async () => {
-    await axios.patch(`${API}/${t._id}/fixtures/${editingFixture._id}`, editForm, { headers:headers() })
-    refresh(); setEditingFixture(null); setEditForm({})
-  }
-
-  // ── Reusable toss modal ──
-  const TossModal = () => (
-    <div style={{ position:'fixed', inset:0, background:'var(--overlay)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding:20 }}>
-      <div style={{ width:'100%', maxWidth:360, background:'var(--header)', borderRadius:20, padding:'24px 20px', border:'1px solid rgba(255,68,68,0.3)' }}>
-        <div style={{ fontSize:16, fontWeight:800, color:'var(--text)', marginBottom:4 }}>
-          {formatDef?.stages.find(s=>s.key===startModal?.stage)?.label || 'Match'}
+          <div style={{ textAlign: "right" }}>
+            {editOvs ? (
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input type="number" value={newOvs} onChange={e => setNewOvs(e.target.value)}
+                  style={{ width: 54, background: T.bg, border: `1px solid ${T.accent}`, borderRadius: 6, color: T.text, padding: "5px 8px", textAlign: "center", fontFamily: "inherit", fontSize: 14 }} />
+                <Btn sm onClick={() => { dispatch({ type: "UPD_OVERS", tid: t.id, mid: m.id, overs: parseInt(newOvs) || m.overs }); setEditOvs(false); }}>✓</Btn>
+                <Btn sm v="ghost" onClick={() => setEditOvs(false)}>✕</Btn>
+              </div>
+            ) : (
+              <button onClick={() => setEditOvs(true)} style={{ background: "none", border: `1px dashed ${T.border}`, borderRadius: 8, color: T.textDim, padding: "5px 12px", cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>
+                {m.overs} overs ✎
+              </button>
+            )}
+          </div>
         </div>
-        <div style={{ fontSize:13, color:'var(--subtext)', marginBottom:20 }}>{startModal?.team1} vs {startModal?.team2}</div>
-
-        <div style={{ fontSize:11, color:'var(--subtext)', fontWeight:800, letterSpacing:1, marginBottom:8 }}>TOSS WON BY</div>
-        <div style={{ display:'flex', gap:8, marginBottom:16 }}>
-          {[startModal?.team1, startModal?.team2].map(tm => (
-            <button key={tm} onClick={()=>setTossForm(f=>({...f,tossWinner:tm,battingFirst:''}))} style={{ flex:1, padding:'10px', borderRadius:10, background:tossForm.tossWinner===tm?'rgba(204,0,0,0.2)':'var(--header)', border:`2px solid ${tossForm.tossWinner===tm?'var(--accent)':'var(--muted)'}`, color:tossForm.tossWinner===tm?'var(--text)':'var(--subtext)', fontWeight:700, fontSize:13, cursor:'pointer' }}>{tm}</button>
+        {/* Recent balls */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {recent.length === 0 && <span style={{ color: T.textFaint, fontSize: 12 }}>No balls yet</span>}
+          {recent.map((b, i) => (
+            <div key={i} style={{ width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: bc(b) + "20", border: `2px solid ${bc(b)}55`, color: bc(b), fontSize: 11, fontWeight: 700 }}>
+              {b.isWicket ? "W" : b.isWide ? "Wd" : b.isNoBall ? "NB" : b.totalRuns}
+            </div>
           ))}
         </div>
-        {tossForm.tossWinner && (
-          <>
-            <div style={{ fontSize:11, color:'var(--subtext)', fontWeight:800, letterSpacing:1, marginBottom:8 }}>BATTING FIRST</div>
-            <div style={{ display:'flex', gap:8, marginBottom:20 }}>
-              {[startModal?.team1, startModal?.team2].map(tm => (
-                <button key={tm} onClick={()=>setTossForm(f=>({...f,battingFirst:tm}))} style={{ flex:1, padding:'10px', borderRadius:10, background:tossForm.battingFirst===tm?'rgba(74,222,128,0.15)':'var(--header)', border:`2px solid ${tossForm.battingFirst===tm?'#4ade80':'var(--muted)'}`, color:tossForm.battingFirst===tm?'#4ade80':'var(--subtext)', fontWeight:700, fontSize:13, cursor:'pointer' }}>{tm}</button>
-              ))}
-            </div>
-          </>
-        )}
-        <div style={{ display:'flex', gap:8 }}>
-          <button onClick={()=>setStartModal(null)} style={{ flex:1, padding:'12px', borderRadius:10, background:'var(--header)', border:'1px solid #2a2a2a', color:'var(--subtext)', fontWeight:800, fontSize:13, cursor:'pointer' }}>Cancel</button>
-          <button onClick={startMatch} disabled={!tossForm.battingFirst} style={{ flex:2, padding:'12px', borderRadius:10, background:tossForm.battingFirst?'linear-gradient(135deg,#cc0000,#ff4444)':'var(--muted)', border:'none', color:tossForm.battingFirst?'var(--text)':'var(--subtext)', fontWeight:800, fontSize:13, cursor:tossForm.battingFirst?'pointer':'not-allowed' }}>🏏 Start Match</button>
-        </div>
-      </div>
-    </div>
-  )
-
-  // ── Edit fixture modal ──
-  const EditFixtureModal = () => (
-    <div style={{ position:'fixed', inset:0, background:'var(--overlay)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding:20 }}>
-      <div style={{ width:'100%', maxWidth:380, background:'var(--header)', borderRadius:20, padding:'24px 20px', border:'1px solid var(--border)' }}>
-        <div style={{ fontSize:16, fontWeight:800, color:'var(--text)', marginBottom:20 }}>
-          Edit — {formatDef?.stages.find(s=>s.key===editingFixture?.stage)?.label}
-        </div>
-
-        {/* Team selectors */}
-        <div style={{ fontSize:11, color:'var(--subtext)', fontWeight:800, letterSpacing:1, marginBottom:8 }}>TEAM 1</div>
-        <select value={editForm.team1||''} onChange={e=>setEditForm(f=>({...f,team1:e.target.value}))}
-          style={{ width:'100%', background:'var(--surface)', border:'1px solid #2a2a2a', borderRadius:10, padding:'11px 14px', color:'var(--text)', fontSize:14, outline:'none', marginBottom:12 }}>
-          <option value="">-- Select team --</option>
-          {t.teams.map(tm=><option key={tm._id} value={tm.name}>{tm.name}</option>)}
-          <option value="TBD">TBD</option>
-        </select>
-
-        <div style={{ fontSize:11, color:'var(--subtext)', fontWeight:800, letterSpacing:1, marginBottom:8 }}>TEAM 2</div>
-        <select value={editForm.team2||''} onChange={e=>setEditForm(f=>({...f,team2:e.target.value}))}
-          style={{ width:'100%', background:'var(--surface)', border:'1px solid #2a2a2a', borderRadius:10, padding:'11px 14px', color:'var(--text)', fontSize:14, outline:'none', marginBottom:12 }}>
-          <option value="">-- Select team --</option>
-          {t.teams.map(tm=><option key={tm._id} value={tm.name}>{tm.name}</option>)}
-          <option value="TBD">TBD</option>
-        </select>
-
-        {/* Schedule */}
-        <div style={{ display:'flex', gap:8, marginBottom:12 }}>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:11, color:'var(--subtext)', fontWeight:800, letterSpacing:1, marginBottom:6 }}>DATE</div>
-            <input type="date" value={editForm.date||''} onChange={e=>setEditForm(f=>({...f,date:e.target.value}))}
-              style={{ width:'100%', background:'var(--surface)', border:'1px solid #2a2a2a', borderRadius:10, padding:'10px 12px', color:'var(--text)', fontSize:13, outline:'none' }}/>
-          </div>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:11, color:'var(--subtext)', fontWeight:800, letterSpacing:1, marginBottom:6 }}>TIME</div>
-            <input type="time" value={editForm.time||''} onChange={e=>setEditForm(f=>({...f,time:e.target.value}))}
-              style={{ width:'100%', background:'var(--surface)', border:'1px solid #2a2a2a', borderRadius:10, padding:'10px 12px', color:'var(--text)', fontSize:13, outline:'none' }}/>
-          </div>
-        </div>
-
-        <div style={{ fontSize:11, color:'var(--subtext)', fontWeight:800, letterSpacing:1, marginBottom:6 }}>VENUE</div>
-        <input value={editForm.venue||''} onChange={e=>setEditForm(f=>({...f,venue:e.target.value}))} placeholder="e.g. Wankhede Stadium"
-          style={{ width:'100%', background:'var(--surface)', border:'1px solid #2a2a2a', borderRadius:10, padding:'10px 12px', color:'var(--text)', fontSize:13, outline:'none', boxSizing:'border-box', marginBottom:20 }}/>
-
-        <div style={{ display:'flex', gap:8 }}>
-          <button onClick={()=>{setEditingFixture(null);setEditForm({})}} style={{ flex:1, padding:'12px', borderRadius:10, background:'var(--header)', border:'1px solid #2a2a2a', color:'var(--subtext)', fontWeight:800, fontSize:13, cursor:'pointer' }}>Cancel</button>
-          <button onClick={saveFixtureEdit} style={{ flex:2, padding:'12px', borderRadius:10, background:'linear-gradient(135deg,#1e3a5f,#2563eb)', border:'none', color:'var(--text)', fontWeight:800, fontSize:13, cursor:'pointer' }}>Save Changes</button>
-        </div>
-      </div>
-    </div>
-  )
-
-  // ── Single bracket card ──
-  const BracketCard = ({ fixture, stageDef }) => {
-    if (!fixture || !stageDef) return null
-    const isFinal = stageDef.key === 'final'
-    const isTBD   = fixture.team1?.startsWith('TBD') || fixture.team2?.startsWith('TBD')
-    const borderColor = fixture.status==='live' ? 'rgba(74,222,128,0.3)' : isFinal ? 'rgba(250,204,21,0.2)' : 'var(--border)'
-
-    return (
-      <div style={{ marginBottom:10 }}>
-        {/* stage label bar */}
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <div style={{ width:3, height:20, borderRadius:2, background: stageDef.color }}/>
-            <span style={{ fontSize:12, fontWeight:800, color: stageDef.color, letterSpacing:0.5 }}>{stageDef.label.toUpperCase()}</span>
-            <span style={{ fontSize:10, color:'var(--muted)', fontWeight:700 }}>{stageDef.matchup}</span>
-          </div>
-          <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-            {fixture.status==='live' && <span style={{ fontSize:10, color:'#4ade80', fontWeight:800 }}>● LIVE</span>}
-            {fixture.status==='completed' && <span style={{ fontSize:10, color:'var(--subtext)', fontWeight:800 }}>✓ DONE</span>}
-            {/* edit button — always available unless live */}
-            {fixture.status !== 'live' && (
-              <button onClick={()=>{ setEditingFixture(fixture); setEditForm({ team1:fixture.team1, team2:fixture.team2, date:fixture.date||'', time:fixture.time||'', venue:fixture.venue||'' }) }}
-                style={{ padding:'4px 10px', borderRadius:7, background:'var(--border2)', border:'1px solid var(--border)', color:'var(--subtext)', fontSize:11, fontWeight:700, cursor:'pointer' }}>✎ Edit</button>
-            )}
-          </div>
-        </div>
-
-        <div style={{ background:'var(--card)', border:`1px solid ${borderColor}`, borderRadius:13, overflow:'hidden' }}>
-          {/* match header */}
-          <div style={{ padding:'14px 16px' }}>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr auto 1fr', gap:8, alignItems:'center', marginBottom: (fixture.team1Score || fixture.status==='completed') ? 10 : 0 }}>
-              {/* team 1 */}
-              <div>
-                <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:2 }}>
-                  <div style={{ width:28, height:28, borderRadius:7, background:'var(--surface)', overflow:'hidden', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                    {t.teams.find(tm=>tm.name===fixture.team1)?.logoUrl
-                      ? <img src={t.teams.find(tm=>tm.name===fixture.team1).logoUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
-                      : <span style={{ fontSize:12 }}>🏏</span>}
-                  </div>
-                  <span style={{ fontSize:14, fontWeight:800, color: fixture.winner===fixture.team1?'var(--text)': isTBD?'var(--subtext)':'var(--text2)' }}>{fixture.team1}</span>
-                  {fixture.winner===fixture.team1 && <span style={{ fontSize:14 }}>🏆</span>}
-                </div>
-                {fixture.team1Score && <div style={{ fontSize:13, color: fixture.winner===fixture.team1?'var(--text)':'var(--subtext)', fontFamily:'Rajdhani,sans-serif', fontWeight:700, paddingLeft:35 }}>{fixture.team1Score}</div>}
-              </div>
-
-              {/* VS */}
-              <div style={{ textAlign:'center' }}>
-                <div style={{ fontSize:11, color:'var(--accent)', fontWeight:800, letterSpacing:1 }}>VS</div>
-                {fixture.date && <div style={{ fontSize:9, color:'var(--muted)', marginTop:2, whiteSpace:'nowrap' }}>{fixture.date}</div>}
-                {fixture.time && <div style={{ fontSize:9, color:'var(--muted)' }}>{fixture.time}</div>}
-              </div>
-
-              {/* team 2 */}
-              <div style={{ textAlign:'right' }}>
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', gap:7, marginBottom:2 }}>
-                  {fixture.winner===fixture.team2 && <span style={{ fontSize:14 }}>🏆</span>}
-                  <span style={{ fontSize:14, fontWeight:800, color: fixture.winner===fixture.team2?'var(--text)': isTBD?'var(--subtext)':'var(--text2)' }}>{fixture.team2}</span>
-                  <div style={{ width:28, height:28, borderRadius:7, background:'var(--surface)', overflow:'hidden', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                    {t.teams.find(tm=>tm.name===fixture.team2)?.logoUrl
-                      ? <img src={t.teams.find(tm=>tm.name===fixture.team2).logoUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
-                      : <span style={{ fontSize:12 }}>🏏</span>}
-                  </div>
-                </div>
-                {fixture.team2Score && <div style={{ fontSize:13, color: fixture.winner===fixture.team2?'var(--text)':'var(--subtext)', fontFamily:'Rajdhani,sans-serif', fontWeight:700, paddingRight:35 }}>{fixture.team2Score}</div>}
-              </div>
-            </div>
-
-            {fixture.status==='completed' && fixture.result && (
-              <div style={{ fontSize:12, color:'#facc15', fontWeight:700, textAlign:'center', paddingTop:4, borderTop:'1px solid var(--border2)' }}>🏆 {fixture.result}</div>
-            )}
-            {fixture.venue && (
-              <div style={{ fontSize:11, color:'var(--muted)', marginTop:6 }}>📍 {fixture.venue}</div>
-            )}
-
-            {/* action buttons */}
-            <div style={{ display:'flex', gap:8, marginTop:12 }}>
-              {fixture.status==='scheduled' && !isTBD && (
-                <button onClick={()=>{ setStartModal(fixture); setTossForm({tossWinner:'',battingFirst:''}) }}
-                  style={{ flex:1, padding:'10px', borderRadius:10, background:'linear-gradient(135deg,var(--accent2),var(--accent))', border:'none', color:'var(--text)', fontWeight:800, fontSize:13, cursor:'pointer' }}>
-                  ▶ Start Match
-                </button>
-              )}
-              {fixture.status==='scheduled' && isTBD && (
-                <div style={{ flex:1, padding:'10px', borderRadius:10, background:'var(--border2)', border:'1px dashed var(--border)', color:'var(--muted)', fontWeight:700, fontSize:12, textAlign:'center' }}>
-                  Awaiting teams — tap ✎ Edit to assign
-                </div>
-              )}
-              {fixture.status==='live' && fixture.matchId && (
-                <>
-                  <button onClick={()=>navigate(`/scoring/${fixture.matchId}`)}
-                    style={{ flex:1, padding:'10px', borderRadius:10, background:'rgba(74,222,128,0.15)', border:'1px solid rgba(74,222,128,0.3)', color:'#4ade80', fontWeight:800, fontSize:13, cursor:'pointer' }}>
-                    🏏 Continue Scoring
-                  </button>
-                  <button onClick={()=>syncResult(fixture._id)}
-                    style={{ padding:'10px 14px', borderRadius:10, background:'var(--border2)', border:'1px solid var(--border)', color:'var(--subtext)', fontWeight:700, fontSize:12, cursor:'pointer' }}>
-                    ↻ Sync
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // ── Format picker modal ──
-  const FormatPickerModal = () => (
-    <div style={{ position:'fixed', inset:0, background:'var(--overlay)', display:'flex', alignItems:'flex-end', justifyContent:'center', zIndex:2000 }}>
-      <div style={{ width:'100%', maxWidth:500, background:'var(--header)', borderRadius:'20px 20px 0 0', padding:'20px 16px 36px', border:'1px solid var(--border)' }}>
-        <div style={{ width:36, height:4, borderRadius:2, background:'var(--text2)', margin:'0 auto 20px' }}/>
-        <div style={{ fontSize:16, fontWeight:800, color:'var(--text)', marginBottom:4 }}>Choose Playoff Format</div>
-        <div style={{ fontSize:12, color:'var(--subtext)', marginBottom:20 }}>This will replace any existing playoff fixtures</div>
-
-        {Object.entries(PLAYOFF_FORMATS).map(([key, fmt]) => {
-          const isCurrent = key === currentFormat
-          const canUse    = t.teams.length >= fmt.teamsNeeded
-          return (
-            <button key={key} onClick={() => canUse && generatePlayoffs(key)} disabled={!canUse}
-              style={{ width:'100%', marginBottom:10, padding:'14px 16px', borderRadius:14, textAlign:'left', cursor: canUse?'pointer':'not-allowed', border:`2px solid ${isCurrent?'var(--accent)':'var(--border)'}`, background: isCurrent?'rgba(204,0,0,0.1)':'var(--card)', opacity: canUse?1:0.4, transition:'all 0.15s' }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                  <span style={{ fontSize:24 }}>{fmt.icon}</span>
-                  <div>
-                    <div style={{ fontSize:14, fontWeight:800, color: isCurrent?'var(--accent)':'var(--text)' }}>{fmt.label}</div>
-                    <div style={{ fontSize:11, color:'var(--subtext)', marginTop:2 }}>{fmt.desc}</div>
-                  </div>
-                </div>
-                <div style={{ textAlign:'right' }}>
-                  <div style={{ fontSize:10, color:'var(--muted)', fontWeight:700 }}>{fmt.teamsNeeded} teams</div>
-                  {isCurrent && <div style={{ fontSize:10, color:'var(--accent)', fontWeight:800, marginTop:2 }}>ACTIVE</div>}
-                </div>
-              </div>
-              {/* stage pills */}
-              <div style={{ display:'flex', gap:6, marginTop:10, flexWrap:'wrap' }}>
-                {fmt.stages.map(s => (
-                  <span key={s.key} style={{ fontSize:10, fontWeight:800, color: s.color, background: s.color+'18', padding:'3px 8px', borderRadius:6 }}>{s.short}</span>
-                ))}
-              </div>
-            </button>
-          )
-        })}
-
-        <button onClick={()=>setFormatPicker(false)} style={{ width:'100%', padding:'13px', marginTop:4, borderRadius:12, background:'var(--header)', border:'1px solid #2a2a2a', color:'var(--subtext)', fontWeight:800, fontSize:14, cursor:'pointer' }}>Cancel</button>
-      </div>
-    </div>
-  )
-
-  // ── Main render ──
-  return (
-    <div style={{ padding:'12px 12px 0' }}>
-      {startModal    && <TossModal />}
-      {editingFixture && <EditFixtureModal />}
-      {formatPicker  && <FormatPickerModal />}
-
-      {/* Header row */}
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
-        <div>
-          {formatDef ? (
-            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-              <span style={{ fontSize:18 }}>{formatDef.icon}</span>
-              <div>
-                <div style={{ fontSize:14, fontWeight:800, color:'var(--text)' }}>{formatDef.label}</div>
-                <div style={{ fontSize:11, color:'var(--subtext)' }}>{formatDef.desc}</div>
-              </div>
-            </div>
-          ) : (
-            <div style={{ fontSize:14, color:'var(--subtext)' }}>No playoff format set</div>
-          )}
-        </div>
-        <button onClick={()=>setFormatPicker(true)}
-          style={{ padding:'8px 14px', borderRadius:10, background:'rgba(255,68,68,0.1)', border:'1px solid rgba(255,68,68,0.25)', color:'var(--accent)', fontWeight:800, fontSize:12, cursor:'pointer' }}>
-          {currentFormat ? '⚙ Change Format' : '+ Set Format'}
-        </button>
       </div>
 
-      {/* Qualified teams strip */}
-      {table.length > 0 && (
-        <Card style={{ padding:'12px 14px', marginBottom:14 }}>
-          <div style={{ fontSize:11, color:'var(--subtext)', fontWeight:800, letterSpacing:1, marginBottom:10 }}>
-            STANDINGS — TOP {Math.min(formatDef?.teamsNeeded ?? 4, table.length)}
-          </div>
-          <div style={{ display:'flex', gap:8, overflowX:'auto' }}>
-            {table.slice(0, formatDef?.teamsNeeded ?? 4).map((row, i) => (
-              <div key={row.name} style={{ flexShrink:0, textAlign:'center', width:64 }}>
-                <div style={{ width:40, height:40, borderRadius:10, background:'var(--surface)', overflow:'hidden', margin:'0 auto 6px', display:'flex', alignItems:'center', justifyContent:'center', border:`2px solid ${i===0?'#facc15':i===1?'var(--border)':'var(--border)'}` }}>
-                  {row.logoUrl ? <img src={row.logoUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}/> : <span style={{ fontSize:16 }}>🏏</span>}
-                </div>
-                <div style={{ fontSize:11, color: i<2?'var(--text)':'var(--subtext)', fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:64 }}>{row.name}</div>
-                <div style={{ fontSize:10, color: i===0?'#facc15':'var(--subtext)', fontWeight:800 }}>#{i+1} • {row.pts}pts</div>
-              </div>
+      {done ? (
+        <Card glow style={{ textAlign: "center", padding: "36px 20px", marginBottom: 14 }}>
+          <div style={{ fontSize: 46, marginBottom: 10 }}>🏆</div>
+          <div style={{ color: T.accent, fontSize: 22, fontWeight: 900 }}>{m.result}</div>
+          <div style={{ color: T.textDim, marginTop: 10 }}>Match Completed</div>
+          <div style={{ marginTop: 18 }}><Btn v="ghost" sm onClick={() => dispatch({ type: "SET_VIEW", view: "fixtures" })}>← Back to Fixtures</Btn></div>
+        </Card>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 4, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, marginBottom: 14 }}>
+            {[["score", "🏏 Scoring"], ["card", "📋 Scorecard"]].map(([k, l]) => (
+              <button key={k} onClick={() => setTab(k)} style={{ flex: 1, padding: "7px 0", borderRadius: 7, border: "none", cursor: "pointer", fontFamily: "inherit", fontWeight: 700, fontSize: 12, background: tab === k ? T.accent : "transparent", color: tab === k ? "#fff" : T.textDim, transition: "all 0.15s" }}>{l}</button>
             ))}
           </div>
-        </Card>
-      )}
 
-      {/* Empty state */}
-      {!currentFormat && (
-        <div style={{ textAlign:'center', padding:'40px 20px' }}>
-          <div style={{ fontSize:48, marginBottom:12 }}>🏆</div>
-          <div style={{ fontSize:14, color:'var(--subtext)', fontWeight:700, marginBottom:6 }}>No playoff format selected</div>
-          <div style={{ fontSize:12, color:'var(--muted)' }}>Tap "Set Format" above to choose IPL, Semi-Finals, or another format</div>
-        </div>
-      )}
-
-      {/* Bracket — rendered in stage order */}
-      {formatDef && formatDef.stages.map(stageDef => {
-        const fixture = playoffFixtures.find(f => f.stage === stageDef.key)
-        return <BracketCard key={stageDef.key} fixture={fixture} stageDef={stageDef} />
-      })}
-    </div>
-  )
-}
-
-// ── MAIN EXPORT ───────────────────────────────────────────────────────────────
-export default function Tournaments({ mode: modeProp }) {
-  const navigate   = useNavigate()
-  const { id }     = useParams()                          // present when /tournaments/:id
-  const [openId, setOpenId] = useState(id || null)
-
-  // Support both prop-based mode (from App.jsx route) and query string mode
-  const qMode = new URLSearchParams(window.location.search).get('mode')
-  const [autoCreate, setAutoCreate] = useState(modeProp === 'new' || qMode === 'new')
-
-  // Keep URL in sync
-  const handleOpen = (tid) => {
-    setOpenId(tid)
-    navigate(`/tournaments/${tid}`, { replace: true })
-  }
-
-  const handleBack = () => {
-    setOpenId(null)
-    navigate('/tournaments', { replace: true })
-  }
-
-  return (
-    <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Nunito:wght@400;600;700;800&display=swap');
-        *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
-        html, body, #root { height:100%; background:var(--bg,#0a0a0a); font-family:'Nunito',sans-serif; }
-        select option { background:var(--card); color:var(--headerText,#fff); }
-        ::-webkit-scrollbar { width:4px; height:4px; }
-        ::-webkit-scrollbar-track { background:var(--surface); }
-        ::-webkit-scrollbar-thumb { background:var(--muted); border-radius:2px; }
-      `}</style>
-      <div style={{ minHeight:'100vh', background:'var(--bg)', display:'flex', justifyContent:'center' }}>
-        <div style={{ width:'100%', maxWidth:500, minHeight:'100vh', background:'var(--surface)', display:'flex', flexDirection:'column' }}>
-          {openId ? (
-            <TournamentDetail id={openId} onBack={handleBack} />
-          ) : (
+          {tab === "score" && (
             <>
-              {/* header */}
-              <div style={{ padding:'16px 16px 0', background:'var(--card)', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
-                <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
-                  <button onClick={() => navigate('/')} style={{ width:34, height:34, borderRadius:9, background:'var(--border)', border:'1px solid var(--border)', color:'var(--text2)', fontSize:16, cursor:'pointer', flexShrink:0 }}>←</button>
-                  <div>
-                    <div style={{ fontFamily:'Rajdhani,sans-serif', fontSize:22, fontWeight:700, color:'var(--accent)', letterSpacing:1 }}>🏆 Tournaments</div>
-                    <div style={{ fontSize:11, color:'var(--subtext)', marginTop:1 }}>Create and manage local cricket tournaments</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
+                <Sel label={`Striker · ${inn.battingTeam}`} value={striker} onChange={setStriker}
+                  options={[{ value: "", label: "Select…" }, ...(batP || []).map(p => ({ value: p, label: p }))]} />
+                <Sel label="Non-Striker" value={nonStriker} onChange={setNonStriker}
+                  options={[{ value: "", label: "Select…" }, ...(batP || []).map(p => ({ value: p, label: p }))]} />
+                <Sel label={`Bowler · ${inn.battingTeam === m.team1 ? m.team2 : m.team1}`} value={bowler} onChange={setBowler}
+                  options={[{ value: "", label: "Select…" }, ...(bowlP || []).map(p => ({ value: p, label: p }))]} />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+                {[[striker, stBat, "Striker ●", T.sky], [nonStriker, nsBat, "Non-Striker", T.textDim]].map(([name, stats, lbl, c]) => (
+                  <Card key={lbl} style={{ padding: "12px 14px" }}>
+                    <div style={{ color: T.textDim, fontSize: 10, fontWeight: 800, letterSpacing: 1.5, marginBottom: 4 }}>{lbl}</div>
+                    <div style={{ color: c, fontWeight: 700, marginBottom: 3 }}>{name || "—"}</div>
+                    {stats ? <div style={{ color: T.textDim, fontSize: 12 }}><span style={{ color: T.text, fontWeight: 700 }}>{stats.runs}</span>({stats.balls}) · {stats.fours}×4 · {stats.sixes}×6 · SR {sr(stats.runs, stats.balls)}</div>
+                      : <div style={{ color: T.textFaint, fontSize: 11 }}>Not yet batted</div>}
+                  </Card>
+                ))}
+              </div>
+
+              {curBwl && (
+                <Card style={{ padding: "10px 14px", marginBottom: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ color: T.textDim, fontSize: 10, fontWeight: 700, letterSpacing: 1.5 }}>BOWLER</div>
+                      <div style={{ color: T.purple, fontWeight: 700, marginTop: 2 }}>{curBwl.name}</div>
+                    </div>
+                    <div style={{ color: T.textMid, fontSize: 13, textAlign: "right" }}>
+                      <div>{ovsDisp(curBwl.balls)} ov · {curBwl.runs}R · <span style={{ color: T.accent, fontWeight: 700 }}>{curBwl.wkts}W</span></div>
+                      <div style={{ color: T.textDim, fontSize: 11, marginTop: 2 }}>Economy: {econ(curBwl.runs, curBwl.balls)}</div>
+                    </div>
                   </div>
+                </Card>
+              )}
+
+              <Card style={{ marginBottom: 14 }}>
+                <div style={{ color: T.textDim, fontSize: 10, fontWeight: 800, letterSpacing: 1.5, marginBottom: 12 }}>RUNS</div>
+                <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+                  {[0, 1, 2, 3, 4, 5, 6].map(r => (
+                    <button key={r} onClick={() => addBall(r)} style={{ width: 54, height: 54, borderRadius: 12, fontWeight: 900, fontSize: 22, cursor: "pointer", transition: "all 0.12s", fontFamily: "inherit", border: `2px solid ${r === 4 ? T.sky + "66" : r === 6 ? T.accent + "66" : T.border}`, background: r === 4 ? T.sky + "15" : r === 6 ? T.accent + "15" : T.bg, color: r === 4 ? T.sky : r === 6 ? T.accent : T.text, boxShadow: r === 4 || r === 6 ? `0 0 10px ${r === 4 ? T.sky : T.accent}25` : "none" }}>
+                      {r}
+                    </button>
+                  ))}
                 </div>
-              </div>
-              <div style={{ flex:1, overflowY:'auto' }}>
-                <TournamentList onOpen={handleOpen} autoCreate={autoCreate} onAutoCreateDone={() => setAutoCreate(false)} />
-              </div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <Btn onClick={() => addBall(0, { wide: true })} style={{ background: T.goldDim, color: T.gold, border: `1px solid ${T.gold}44` }}>Wide +{t.wideRuns ?? 1}</Btn>
+                  <Btn onClick={() => addBall(0, { nb: true })} style={{ background: "#1c1917", color: "#a8a29e", border: "1px solid #44403c" }}>No Ball +{t.noBallRuns ?? 1}</Btn>
+                  <Btn onClick={() => addBall(0, { wkt: true })} v="danger">🔴 Wicket</Btn>
+                  <Btn onClick={() => dispatch({ type: "UNDO", tid: t.id, mid: m.id })} v="ghost">↩ Undo</Btn>
+                </div>
+              </Card>
             </>
           )}
+
+          {tab === "card" && (
+            <div>
+              {["innings1", "innings2"].map(k => {
+                const i = m[k]; if (!i?.bat?.length) return null;
+                return (
+                  <div key={k} style={{ marginBottom: 18 }}>
+                    <div style={{ color: T.accent, fontWeight: 800, fontSize: 13, marginBottom: 8 }}>{i.battingTeam} — {i.runs}/{i.wickets} ({ovsDisp(i.balls)} ov)</div>
+                    <Card style={{ padding: "0 4px", marginBottom: 10, overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead><tr>{["Batsman", "R", "B", "4s", "6s", "SR"].map(h => <th key={h} style={{ padding: "7px 8px", textAlign: h === "Batsman" ? "left" : "center", color: T.textDim, fontWeight: 700, fontSize: 10, borderBottom: `1px solid ${T.border}` }}>{h}</th>)}</tr></thead>
+                        <tbody>{i.bat.map(b => <tr key={b.name} style={{ borderTop: `1px solid ${T.border}` }}><td style={{ padding: "7px 8px", color: b.out ? T.textDim : T.text }}>{b.name}{b.out ? " †" : " *"}</td>{[b.runs, b.balls, b.fours, b.sixes].map((v, vi) => <td key={vi} style={{ padding: "7px 8px", textAlign: "center", color: T.textMid }}>{v}</td>)}<td style={{ padding: "7px 8px", textAlign: "center", color: T.gold }}>{sr(b.runs, b.balls)}</td></tr>)}</tbody>
+                      </table>
+                    </Card>
+                    {i.bowl?.length > 0 && (
+                      <Card style={{ padding: "0 4px", overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                          <thead><tr>{["Bowler", "O", "R", "W", "Wd", "NB", "Econ"].map(h => <th key={h} style={{ padding: "7px 8px", textAlign: h === "Bowler" ? "left" : "center", color: T.textDim, fontWeight: 700, fontSize: 10, borderBottom: `1px solid ${T.border}` }}>{h}</th>)}</tr></thead>
+                          <tbody>{i.bowl.map(b => <tr key={b.name} style={{ borderTop: `1px solid ${T.border}` }}><td style={{ padding: "7px 8px", color: T.text }}>{b.name}</td>{[ovsDisp(b.balls), b.runs, b.wkts, b.wides || 0, b.nb || 0].map((v, vi) => <td key={vi} style={{ padding: "7px 8px", textAlign: "center", color: vi === 2 ? T.accent : T.textMid, fontWeight: vi === 2 ? 700 : 400 }}>{v}</td>)}<td style={{ padding: "7px 8px", textAlign: "center", color: T.gold }}>{econ(b.runs, b.balls)}</td></tr>)}</tbody>
+                        </table>
+                      </Card>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── APP ──────────────────────────────────────────────────────────────────────
+export default function TournamentSystem() {
+  const [state, rawD] = useState(() => load() || INIT);
+  const dispatch = useCallback(action => {
+    rawD(prev => { const next = reducer(prev, action); persist(next); return next; });
+  }, []);
+
+  const t = state.activeTid ? state.tournaments.find(x => x.id === state.activeTid) : null;
+  const f = t && state.activeFid ? t.fixtures?.find(x => x.id === state.activeFid) : null;
+
+  // Auto-sync: when viewing a tournament, poll live fixtures to mark completed matches
+  useEffect(() => {
+    if (!t) return;
+    const liveFixtures = (t.fixtures || []).filter(fx => fx.status === "live" && fx.realMatchId);
+    if (!liveFixtures.length) return;
+    const token = localStorage.getItem("token");
+    liveFixtures.forEach(fx => {
+      axios.get(`/api/matches/${fx.realMatchId}`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => {
+          const m = r.data;
+          if (m.status === "completed" && m.result) {
+            dispatch({ type: "MARK_FIXTURE_COMPLETE", tid: t.id, matchId: m._id, result: m.result });
+          }
+        }).catch(() => {});
+    });
+  }, [t?.id, state.view]);
+
+  const isMatch = state.view === "matchSetup";
+  const tabs = [["setup", "⚙", "Setup"], ["fixtures", "📅", "Fixtures"], ["standings", "📊", "Table"], ["stats", "📈", "Stats"]];
+
+  return (
+    <div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: "'Segoe UI', system-ui, sans-serif" }}>
+      <style>{`
+        *{box-sizing:border-box;margin:0;padding:0}
+        ::-webkit-scrollbar{width:5px;height:5px}
+        ::-webkit-scrollbar-track{background:${T.bg}}
+        ::-webkit-scrollbar-thumb{background:${T.border};border-radius:3px}
+        input[type=number]::-webkit-inner-spin-button{opacity:0.4}
+        button:hover:not(:disabled){filter:brightness(1.12)}
+        select option{background:${T.card}}
+        @keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+        .fi{animation:fi 0.2s ease}
+      `}</style>
+
+      {/* Nav */}
+      <div style={{ background: T.surface, borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, zIndex: 200 }}>
+        <div style={{ maxWidth: 800, margin: "0 auto", padding: "0 16px", height: 52, display: "flex", alignItems: "center", gap: 10 }}>
+          <button onClick={() => dispatch({ type: "SET_VIEW", view: "home" })} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, padding: 0 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 7, background: `linear-gradient(135deg,${T.accent},#c53030)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>🏏</div>
+            <span style={{ color: T.accent, fontWeight: 900, fontSize: 15, letterSpacing: -0.3, fontFamily: "inherit" }}>CrickyWorld</span>
+          </button>
+
+          {t && <><span style={{ color: T.textFaint, fontSize: 16 }}>›</span><span style={{ color: T.textMid, fontSize: 13, fontWeight: 600, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</span></>}
+          {isMatch && f && <><span style={{ color: T.textFaint, fontSize: 16 }}>›</span><span style={{ color: T.gold, fontSize: 12, fontWeight: 700 }}>{f.team1} vs {f.team2}</span></>}
+
+          {t && !isMatch && (
+            <div style={{ marginLeft: "auto", display: "flex", gap: 2 }}>
+              {tabs.map(([k, icon, label]) => (
+                <button key={k} onClick={() => dispatch({ type: "SET_VIEW", view: k })}
+                  style={{ background: state.view === k ? T.accent + "18" : "transparent", border: `1px solid ${state.view === k ? T.accent + "55" : "transparent"}`, borderRadius: 8, color: state.view === k ? T.accent : T.textDim, cursor: "pointer", fontFamily: "inherit", padding: "5px 12px", fontSize: 12, fontWeight: 700, transition: "all 0.14s" }}>
+                  {icon} {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {isMatch && <button onClick={() => dispatch({ type: "SET_VIEW", view: "fixtures" })} style={{ marginLeft: "auto", background: "none", border: `1px solid ${T.border}`, borderRadius: 8, color: T.textDim, cursor: "pointer", fontFamily: "inherit", padding: "5px 12px", fontSize: 12 }}>← Fixtures</button>}
         </div>
       </div>
-    </>
-  )
+
+      {/* Sub-bar */}
+      {t && !isMatch && (
+        <div style={{ background: T.surface, borderBottom: `1px solid ${T.border}` }}>
+          <div style={{ maxWidth: 800, margin: "0 auto", padding: "0 16px", height: 32, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ color: T.textDim, fontSize: 11 }}>
+              {FORMATS.find(f => f.key === t.format)?.label || t.format} · {(t.teams || []).filter(x => x).length} teams · {t.defaultOvers} overs
+            </div>
+            <div style={{ color: T.textDim, fontSize: 11 }}>
+              {(t.fixtures || []).filter(f => f.status === "completed").length}/{(t.fixtures || []).length} matches played
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Page */}
+      <div className="fi" key={state.view}>
+        {state.view === "home" && <Home state={state} dispatch={dispatch} />}
+        {state.view === "setup" && t && <Setup t={t} dispatch={dispatch} />}
+        {state.view === "fixtures" && t && <Fixtures t={t} dispatch={dispatch} />}
+        {state.view === "standings" && t && <PointsTable t={t} dispatch={dispatch} />}
+        {state.view === "stats" && t && <TStats t={t} />}
+        {state.view === "matchSetup" && t && f && <MatchSetup t={t} f={f} dispatch={dispatch} />}
+      </div>
+    </div>
+  );
 }
