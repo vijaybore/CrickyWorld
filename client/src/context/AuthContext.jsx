@@ -2,8 +2,6 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import axios from 'axios'
 import API from '../api'
 
-// OTP-based auth — no passwords
-
 const AuthContext = createContext()
 
 export function AuthProvider({ children }) {
@@ -18,7 +16,6 @@ export function AuthProvider({ children }) {
       })
         .then(res => setUser(res.data))
         .catch(() => {
-          // Token invalid/expired — clear it silently, stay on current page
           localStorage.removeItem('token')
           localStorage.removeItem('user')
         })
@@ -28,8 +25,8 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
-  // Mobile + OTP login (auto-registers new users)
   const loginWithOTP = async (mobile, otp, name) => {
+    // FIX: use ${API} prefix for production compatibility
     const res = await axios.post(`${API}/api/auth/verify-otp`, { mobile, otp, name })
     localStorage.setItem('token', res.data.token)
     localStorage.setItem('user', JSON.stringify(res.data.user))
