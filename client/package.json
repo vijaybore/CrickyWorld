@@ -1,16 +1,20 @@
 {
+  "name": "client",
+  "private": true,
   "scripts": {
-    "dev": "nodemon server/server.js",
-    "start": "node server/server.js"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
-    "compression": "^1.7.4",
-    "cors": "^2.8.5",
-    "dotenv": "^17.3.1",
-    "express": "^4.18.2",
-    "mongoose": "^9.2.1"
+    "axios": "^1.13.6",
+    "html2canvas": "^1.4.1",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "react-router-dom": "^7.13.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0"
+    "@vitejs/plugin-react": "^6.0.0",
+    "vite": "^8.0.0"
   }
 }
