@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
+import API from '../api'   // ✅ Central API constant — no more localhost!
 
 function ManagePlayers() {
   const [players, setPlayers] = useState([])
@@ -10,20 +11,23 @@ function ManagePlayers() {
   }, [])
 
   const fetchPlayers = async () => {
-    const res = await axios.get('http://localhost:5000/api/players')
+    // ✅ Was: axios.get('http://localhost:5000/api/players')
+    const res = await axios.get(`${API}/api/players`)
     setPlayers(res.data)
   }
 
   const addPlayer = async () => {
     if (!newPlayerName.trim()) return alert('Enter player name!')
-    await axios.post('http://localhost:5000/api/players', { name: newPlayerName.trim() })
+    // ✅ Was: axios.post('http://localhost:5000/api/players', ...)
+    await axios.post(`${API}/api/players`, { name: newPlayerName.trim() })
     setNewPlayerName('')
     fetchPlayers()
   }
 
   const deletePlayer = async (id) => {
     if (window.confirm('Delete this player?')) {
-      await axios.delete(`http://localhost:5000/api/players/${id}`)
+      // ✅ Was: axios.delete(`http://localhost:5000/api/players/${id}`)
+      await axios.delete(`${API}/api/players/${id}`)
       fetchPlayers()
     }
   }
