@@ -2,9 +2,13 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 
-const API   = '/api/players'
-const tok   = () => localStorage.getItem('token')
-const H     = () => ({ Authorization: `Bearer ${tok()}` })
+const API = 'https://crickyworld-server.onrender.com/api/players'
+const tok = () => localStorage.getItem('token')
+
+const H = () => {
+  const t = tok()
+  return t ? { Authorization: `Bearer ${t}` } : {}
+}
 const fmtOv = b => `${Math.floor(b / 6)}.${b % 6}`
 
 // ── Derived stats ─────────────────────────────────────────────────────────────
