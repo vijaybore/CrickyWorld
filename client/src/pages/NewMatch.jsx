@@ -3,10 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import API from "../api";
 
-axios.post(`${API}/matches`, data)
+
 const tok = () => localStorage.getItem('token')
 const H   = () => ({ Authorization: `Bearer ${tok()}` })
-
 export default function NewMatch() {
   const navigate = useNavigate()
 
