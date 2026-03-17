@@ -41,7 +41,7 @@ export default function OpenMatch() {
       setLoading(true)
       setError('')
       const token = localStorage.getItem('token')
-      const { data } = await axios.get('/api/matches', {
+      const { data } = await axios.get('https://crickyworld-server.onrender.com/api/matches', {
         headers: { Authorization: `Bearer ${token}` },
       })
       setMatches(data)
@@ -58,7 +58,7 @@ export default function OpenMatch() {
     try {
       setDeleting(id)
       const token = localStorage.getItem('token')
-      await axios.delete(`/api/matches/${id}`, {
+      await axios.delete(`https://crickyworld-server.onrender.com/api/matches/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       setMatches(m => m.filter(x => x._id !== id))
@@ -71,7 +71,7 @@ export default function OpenMatch() {
 
   const handleOpen = (match) => {
     if (match.status === 'completed') {
-      navigate(`/report/${match._id}`)
+      nnavigate(`/match/${match._id}`)
     } else {
       navigate(`/scoring/${match._id}`)
     }

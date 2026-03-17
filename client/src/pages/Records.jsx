@@ -354,8 +354,8 @@ export default function Records(){
 
   useEffect(()=>{
     Promise.all([
-      axios.get('/api/matches',{headers:H()}),
-      axios.get('/api/players',{headers:H()}).catch(()=>({data:[]})),
+      axios.get('https://crickyworld-server.onrender.com/api/matches',{headers:H()}),
+      axios.get('https://crickyworld-server.onrender.com/api/players',{headers:H()}).catch(()=>({data:[]})),
     ]).then(([mr,pr])=>{
       setMatches(mr.data||[])
       const pm={}
